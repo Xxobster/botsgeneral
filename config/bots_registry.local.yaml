@@ -1,0 +1,69 @@
+# Dev/local registry — points at Windows project trees for discovery testing.
+discovery_interval_sec: 60
+default_db_path: data/shared_candles.db
+history_bars: 200
+
+vps:
+  "local":
+    bots: [news, wip, divergences, crypthor2, karmaa_mp, xgb]
+  "94.156.189.76":
+    bots: [news, wip, xgb]
+  "212.73.150.178":
+    bots: [divergences, crypthor2, karmaa_mp]
+
+bots:
+  news:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster6
+    path: "C:/projects/news"
+    parser: news_yaml
+    process_match: ["crypto_alpha"]
+    screen_match: ["crypto_alpha"]
+
+  wip:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster7
+    path: "C:/projects/W.I.P"
+    parser: wip_fleet
+    also_fetch_timeframes: ["1h"]
+    process_match: ["wip"]
+    screen_match: ["wip_"]
+
+  xgb:
+    serve_candles: false
+    exchange: binance
+    account: [Xxobster2, Xxobster13]
+    path: "C:/projects/xgb"
+    parser: none
+    process_match: ["live_trade"]
+    screen_match: ["xxobster"]
+
+  divergences:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster3
+    path: "C:/projects/divergences"
+    parser: divergences_launch
+    process_match: ["divergences"]
+    screen_match: ["bybit_"]
+
+  crypthor2:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster4
+    path: "C:/projects/crypthor2"
+    parser: crypthor_services
+    process_match: ["crypthor"]
+    systemd_prefix: crypthor-
+    screen_match: ["crypthor"]
+
+  karmaa_mp:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster5
+    path: "C:/projects/karmaa_mp"
+    parser: karmaa_config
+    process_match: ["karmaa"]
+    screen_match: ["Xxobster5"]

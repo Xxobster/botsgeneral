@@ -1,0 +1,23 @@
+[Unit]
+Description=botsgeneral shared candle collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/botsgeneral
+Environment=BOTSGENERAL_VPS=%i
+Environment=SHARED_CANDLES_DB=/var/lib/botsgeneral/shared_candles.db
+Environment=BOTSGENERAL_REGISTRY=/opt/botsgeneral/config/bots_registry.yaml
+Environment=BOTSGENERAL_KEYS=/etc/botsgeneral/bybit_keys.txt
+ExecStart=/opt/botsgeneral/venv/bin/python -m botsgeneral collect
+Restart=always
+RestartSec=5
+Nice=5
+
+# Enable with: systemctl enable --now botsgeneral-collector@94.156.189.76
+#          or: systemctl enable --now botsgeneral-collector@212.73.150.178
+
+[Install]
+WantedBy=multi-user.target

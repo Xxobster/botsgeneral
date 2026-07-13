@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+keys.env
+bybit_keys.txt
+api keys*.txt
+.pytest_cache/
+.mypy_cache/
+dist/
+*.egg-info/
+.DS_Store

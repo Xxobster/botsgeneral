@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "botsgeneral"
+version = "0.1.0"
+description = "Shared candle collector, sitrep, and PnL for trading bots on VPS"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "requests>=2.31.0",
+  "PyYAML>=6.0",
+  "websocket-client>=1.6.0",
+]
+
+[project.scripts]
+botsgeneral = "botsgeneral.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["botsgeneral*"]

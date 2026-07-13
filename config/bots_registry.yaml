@@ -1,0 +1,72 @@
+# Bot install locations and how to discover candle demand.
+# Edit this only when adding a NEW bot project to a VPS — not when adding coins.
+
+discovery_interval_sec: 60
+default_db_path: /var/lib/botsgeneral/shared_candles.db
+history_bars: 1000
+
+# Hostname / IP → which bot entries apply (collector uses BOTSGENERAL_VPS or auto-detect)
+vps:
+  "94.156.189.76":
+    bots: [news, wip, xgb]
+  "212.73.150.178":
+    bots: [divergences, crypthor2, karmaa_mp]
+
+bots:
+  news:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster6
+    path: /home/crypto_alpha
+    parser: news_yaml
+    process_match: ["crypto_alpha", "run_live_bybit"]
+    screen_match: ["crypto_alpha"]
+
+  wip:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster7
+    path: /opt/wip
+    parser: wip_fleet
+    # Decision TF is 4h; live engine also needs 1h base series
+    also_fetch_timeframes: ["1h"]
+    process_match: ["run_live_bot", "wip"]
+    screen_match: ["wip_"]
+
+  xgb:
+    serve_candles: false
+    exchange: binance
+    account: [Xxobster2, Xxobster13]
+    path: /home/xgb
+    parser: none
+    process_match: ["live_trade", "xgb"]
+    screen_match: ["xxobster2", "xxobster13"]
+
+  divergences:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster3
+    path: /opt/divergences
+    parser: divergences_launch
+    process_match: ["run_live", "divergences"]
+    screen_match: ["bybit_"]
+
+  crypthor2:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster4
+    path: /opt/crypthor
+    parser: crypthor_services
+    process_match: ["run_live_bot", "crypthor"]
+    systemd_prefix: crypthor-
+    screen_match: ["crypthor"]
+
+  karmaa_mp:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster5
+    path: /root/karmaa_mp
+    parser: karmaa_config
+    process_match: ["run_live_bot", "karmaa"]
+    screen_match: ["Xxobster5", "karmaa"]
+    systemd_match: ["karmaa-mp-live"]
