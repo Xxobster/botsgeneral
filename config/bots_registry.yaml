@@ -6,7 +6,7 @@ default_db_path: /var/lib/botsgeneral/shared_candles.db
 # 0 = fetch maximum history available from the exchange (paginate until empty)
 history_bars: 0
 # bump to force a full re-backfill on next collector start
-history_schema: "3"
+history_schema: "4"
 
 # Hostname / IP → which bot entries apply (collector uses BOTSGENERAL_VPS or auto-detect)
 vps:
@@ -17,7 +17,7 @@ vps:
 
 bots:
   news:
-    serve_candles: false
+    serve_candles: true
     exchange: binance
     account: Xxobster6
     path: /home/crypto_alpha
@@ -40,7 +40,6 @@ bots:
     serve_candles: false
     exchange: binance
     account: [Xxobster2, Xxobster13]
-    # Coins from xgb coins_registry (shown in report even with 0 closed trades)
     symbols:
       - BTCUSDT
       - ETHUSDT
@@ -72,6 +71,8 @@ bots:
     account: Xxobster4
     path: /opt/crypthor
     parser: crypthor_services
+    # Native 1h/4h for MTF indicators (plus 5m source)
+    also_fetch_timeframes: ["1h", "4h"]
     process_match: ["run_live_bot", "crypthor"]
     systemd_prefix: crypthor-
     screen_match: ["crypthor"]
@@ -82,6 +83,8 @@ bots:
     account: Xxobster5
     path: /root/karmaa_mp
     parser: karmaa_config
+    # Native 1h/4h for ltf/mtf/adx (plus 5m source)
+    also_fetch_timeframes: ["1h", "4h"]
     process_match: ["run_live_bot", "karmaa"]
     screen_match: ["Xxobster5", "karmaa"]
     systemd_match: ["karmaa-mp-live"]
