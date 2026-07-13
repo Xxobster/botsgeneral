@@ -90,3 +90,57 @@ def resolve_accounts(keys_path: str | None = None) -> dict[str, dict[str, str]]:
         else:
             return parse_bybit_keys_file(p)
     return {}
+
+
+def resolve_binance_keys(keys_path: str | None = None) -> dict[str, str]:
+    """Load Binance API key/secret from standard locations (public klines work without)."""
+    candidates = []
+    if keys_path:
+        candidates.append(keys_path)
+    env = os.environ.get("BOTSGENERAL_BINANCE_KEYS")
+    if env:
+        candidates.append(env)
+    candidates.extend(
+        [
+            "/etc/botsgeneral/binance_keys.txt",
+            str(Path(r"c:\projects\BASE CURSOR\api key binance.txt")),
+            str(Path(r"c:\projects\xgb\config\api_keys.json")),
+        ]
+    )
+    for c in candidates:
+        p = Path(c)
+        if not p.exists():
+            continue
+        if p.suffix.lower() == ".json":
+            import json
+
+            data = json.loads(p.read_text(encoding="utf-8"))
+            # common shapes: {"binance": {"api_key":...}} or flat
+            if "binance" in data and isinstance(data["binance"], dict):
+                d = data["binance"]
+                key = d.get("api_key") or d.get("API_KEY")
+                secret = d.get("api_secret") or d.get("API_SECRET")
+                if key and secret:
+                    return {"api_key": key, "api_secret": secret}
+            key = data.get("BINANCE_API_KEY") or data.get("api_key")
+            secret = data.get("BINANCE_API_SECRET") or data.get("api_secret")
+            if key and secret:
+                return {"api_key": str(key), "api_secret": str(secret)}
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        key_m = re.search(r"BINANCE_API_KEY\s*:\s*(\S+)", text, re.I)
+        sec_m = re.search(r"BINANCE_API_SECRET\s*:\s*(\S+)", text, re.I)
+        if key_m and sec_m:
+            return {"api_key": key_m.group(1).strip(), "api_secret": sec_m.group(1).strip()}
+        env_map = load_env_file(p)
+        if env_map.get("BINANCE_API_KEY") and env_map.get("BINANCE_API_SECRET"):
+            return {
+                "api_key": env_map["BINANCE_API_KEY"],
+                "api_secret": env_map["BINANCE_API_SECRET"],
+            }
+    # env vars
+    ak = os.environ.get("BINANCE_API_KEY")
+    sk = os.environ.get("BINANCE_API_SECRET")
+    if ak and sk:
+        return {"api_key": ak, "api_secret": sk}
+    return {}

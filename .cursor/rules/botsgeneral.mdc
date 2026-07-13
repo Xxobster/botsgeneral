@@ -1,0 +1,17 @@
+---
+description: botsgeneral project memory, sitrep keyword, and standing trading-stack rules
+alwaysApply: true
+---
+
+# Always update project memory when the session changes state
+- docs/project_memory/CURRENT_STATE.md
+- docs/project_memory/CHANGELOG.md
+- docs/project_memory/TODO.md
+- docs/project_memory/DECISIONS.md (when a decision changes)
+
+# Keyword sitrep
+- Run collector sitrep + pnl on relevant VPS; report bot UP/DOWN, candle freshness, disk/mem, account equity/positions
+- If research context: report optimization progress with backtest metrics (period, trades, WR, Sharpe, PF, pnl)
+
+# Standing trading-stack rules
+- See docs/project_memory/RULES.md (WS preferred, SQLite, screen names, systemd restart, vectorized, local backtests only, etc.)

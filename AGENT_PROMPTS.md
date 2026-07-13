@@ -1,8 +1,9 @@
-AGENT_PROMPTS.md
-
 # Copy-paste prompts for project agents
 
 Skip **xgb** — it keeps Binance self-fetch.
+
+**Standing rules (prepend mentally to every prompt):**  
+Follow `C:\projects\botsgeneral\docs\project_memory\RULES.md` and keep that project’s `docs/project_memory/` updated. Prefer WebSocket, SQLite trade logs, screen+systemd auto-restart, vectorized code, walk-forward backtests locally only, max leverage + min size live unless told otherwise, maker fees when possible, TP ladder + BE from fill price, finplot for visuals, full sitrep metrics live vs backtest.
 
 ---
 
@@ -10,6 +11,8 @@ Skip **xgb** — it keeps Binance self-fetch.
 
 ```
 Context: We are consolidating candle acquisition. A new service "botsgeneral" runs ONE collector per VPS and writes a shared SQLite DB. This bot must STOP fetching/writing candles and READ from that DB instead. Trading (Bybit orders) stays on this bot's own API keys.
+
+Also respect standing stack rules in C:\projects\botsgeneral\docs\project_memory\RULES.md and update this project's docs/project_memory/.
 
 Shared DB (VPS 212.73.150.178): /var/lib/botsgeneral/shared_candles.db
 Schema: table candles(exchange, symbol, timeframe, ts_ms, open, high, low, close, volume, quote_volume, trades, taker_buy_base, taker_buy_quote, updated_at_ms)
@@ -35,6 +38,8 @@ After code works locally in principle, commit and push; deploy to /opt/crypthor 
 ```
 Context: Shared candle collector "botsgeneral" writes /var/lib/botsgeneral/shared_candles.db on VPS 212.73.150.178. karmaa_mp must stop acquiring candles and read that DB. Trading stays on Xxobster5 keys.
 
+Also respect standing stack rules in C:\projects\botsgeneral\docs\project_memory\RULES.md and update this project's docs/project_memory/.
+
 This bot is nearly identical to crypthor2 live candle flow.
 
 Live need: bybit BTCUSDT 5m only.
@@ -54,6 +59,8 @@ Goals:
 
 ```
 Context: Shared collector botsgeneral owns candle writes on VPS 212.73.150.178 at /var/lib/botsgeneral/shared_candles.db.
+
+Also respect standing stack rules in C:\projects\botsgeneral\docs\project_memory\RULES.md and update this project's docs/project_memory/.
 
 divergences already has CandlesRepository (table candles with exchange/symbol/timeframe/ts_ms/OHLCV) — closest fit.
 
@@ -77,6 +84,8 @@ Goals:
 Context: Shared collector botsgeneral on VPS 94.156.189.76 writes Binance OHLCV into /var/lib/botsgeneral/shared_candles.db.
 xgb on the same VPS is NOT migrated and keeps its own Binance pull — ignore xgb.
 
+Also respect standing stack rules in C:\projects\botsgeneral\docs\project_memory\RULES.md and update this project's docs/project_memory/.
+
 news currently polls Binance via ingest_historical_klines into database/crypto_alpha.db raw_klines each signal cycle. That ingest must stop for live.
 
 Live need: binance BTCUSDT 4h market=futures, including quote_volume/trades/taker_buy_* for features.
@@ -99,6 +108,8 @@ Goals:
 ```
 Context: Shared collector botsgeneral on VPS 94.156.189.76 writes Bybit candles to /var/lib/botsgeneral/shared_candles.db.
 W.I.P live currently keeps candles in RAM (REST seed + Bybit WS 1h/4h). Switch live to read shared DB.
+
+Also respect standing stack rules in C:\projects\botsgeneral\docs\project_memory\RULES.md and update this project's docs/project_memory/. Use screen with explicit names; systemd auto-restart on reboot.
 
 Fleet: BTCUSDT long, ETHUSDT short, BNBUSDT short — decision on 4h, base series 1h.
 Collector will store bybit 1h (and optionally 4h). Prefer load 1h from shared DB and keep existing resample/4h confirm logic, OR load 4h if present — match current signal_engine semantics.

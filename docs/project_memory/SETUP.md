@@ -1,0 +1,49 @@
+# Setup
+
+## Local (Windows)
+
+```bash
+cd C:\projects\botsgeneral
+pip install -e .
+# or: pip install -r requirements.txt  + PYTHONPATH=.
+```
+
+Discover against local project trees:
+
+```bash
+python -m botsgeneral --registry config/bots_registry.local.yaml --vps local discover
+python -m botsgeneral --registry config/bots_registry.local.yaml --vps local --db data/shared_candles.db sitrep
+python -m botsgeneral --keys "C:\projects\BASE CURSOR\api keys bybit.txt" pnl
+```
+
+Binance keys (history / authenticated if needed): `C:\projects\BASE CURSOR\api key binance.txt`  
+Bybit keys: `C:\projects\BASE CURSOR\api keys bybit.txt`
+
+## VPS install
+
+```bash
+# preferred (GitHub SSH key on VPS)
+cd /opt && git clone git@github.com:Xxobster/botsgeneral.git
+cd botsgeneral && bash deploy/install_vps.sh <VPS_IP>
+
+# if clone/SSH flaky: scp tree then
+bash deploy/finish_install.sh <VPS_IP>
+```
+
+Place keys:
+
+```bash
+cp /path/to/bybit_keys.txt /etc/botsgeneral/bybit_keys.txt
+chmod 600 /etc/botsgeneral/bybit_keys.txt
+```
+
+## Tests
+
+```bash
+pytest tests -q
+```
+
+## SSH hosts (local config)
+
+- `eventactivities-vps` → 94.156.189.76
+- `poly-vps` → 212.73.150.178

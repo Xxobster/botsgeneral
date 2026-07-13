@@ -18,6 +18,15 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
     interval = BINANCE_INTERVAL.get(pair.timeframe)
     if not interval:
         raise ValueError(f"Unsupported Binance timeframe: {pair.timeframe}")
+    headers = {}
+    try:
+        from botsgeneral.keys import resolve_binance_keys
+
+        creds = resolve_binance_keys()
+        if creds.get("api_key"):
+            headers["X-MBX-APIKEY"] = creds["api_key"]
+    except Exception:
+        pass
     # paginate
     end = None
     all_rows: dict[int, CandleRow] = {}
@@ -27,7 +36,12 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
         params = {"symbol": pair.symbol, "interval": interval, "limit": batch}
         if end is not None:
             params["endTime"] = end
-        r = requests.get(f"{BINANCE_FUTURES}/fapi/v1/klines", params=params, timeout=30)
+        r = requests.get(
+            f"{BINANCE_FUTURES}/fapi/v1/klines",
+            params=params,
+            headers=headers or None,
+            timeout=30,
+        )
         r.raise_for_status()
         lst = r.json()
         if not lst:

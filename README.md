@@ -2,6 +2,9 @@
 
 Shared **candle collector**, **sitrep**, and **PnL** for trading bots on two VPS hosts.
 
+**Project memory:** [`docs/project_memory/`](docs/project_memory/) — start with `CURRENT_STATE.md` and `RULES.md`.  
+**Agent prompts for trading bots:** [`AGENT_PROMPTS.md`](AGENT_PROMPTS.md)
+
 ## Why
 
 Multiple bots were each pulling the same OHLCV. This service:
