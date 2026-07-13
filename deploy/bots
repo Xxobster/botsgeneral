@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Phone-friendly shortcut from /root — usage:
-#   bots
-#   bots trades Xxobster4 BTCUSDT
-#   bots trades crypthor2
+# Phone-friendly shortcut from /root
 set -euo pipefail
 ROOT=/opt/botsgeneral
 export PYTHONPATH="${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
@@ -10,14 +7,49 @@ export BOTSGENERAL_KEYS="${BOTSGENERAL_KEYS:-/etc/botsgeneral/bybit_keys.txt}"
 export BOTSGENERAL_REPORT_CFG="${BOTSGENERAL_REPORT_CFG:-/etc/botsgeneral/report.yaml}"
 export SHARED_CANDLES_DB="${SHARED_CANDLES_DB:-/var/lib/botsgeneral/shared_candles.db}"
 PY="${ROOT}/venv/bin/python"
+
+usage() {
+  cat <<'EOF'
+bots — fleet health + PnL report (botsgeneral)
+
+Usage:
+  bots                         Full report (bots OK + PnL since date, by account/coin)
+  bots report                  Same as above
+  bots trades <acct|bot> [SYM] Trade drilldown (e.g. bots trades xgb BTCUSDT)
+  bots sitrep                  Host + bot process + candle freshness only
+  bots pnl                     Quick wallet / open positions
+  bots discover                Which candle pairs the collector is serving
+  bots backfill                Force max-history candle backfill once
+  bots --help                  This help
+
+Examples:
+  bots
+  bots trades Xxobster2
+  bots trades xgb ETHUSDT
+  bots trades crypthor2 BTCUSDT
+
+Config:
+  Since date:  /etc/botsgeneral/report.yaml   (since_date: "2026-07-09")
+  Bybit keys:  /etc/botsgeneral/bybit_keys.txt (+ /home/xgb/config/api_keys.json merged)
+EOF
+}
+
 if [[ $# -eq 0 ]]; then
   exec "$PY" -m botsgeneral report
 fi
+
 case "$1" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
   trades|sitrep|pnl|discover|report|backfill)
     exec "$PY" -m botsgeneral "$@"
     ;;
   *)
-    exec "$PY" -m botsgeneral report "$@"
+    usage
+    echo
+    echo "Unknown command: $1" >&2
+    exit 1
     ;;
 esac

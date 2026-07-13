@@ -36,6 +36,7 @@ bots:
     serve_candles: false
     exchange: binance
     account: [Xxobster2, Xxobster13]
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, TRXUSDT, XLMUSDT, VETUSDT]
     path: "C:/projects/xgb"
     parser: none
     process_match: ["live_trade"]

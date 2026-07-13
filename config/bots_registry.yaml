@@ -40,10 +40,22 @@ bots:
     serve_candles: false
     exchange: binance
     account: [Xxobster2, Xxobster13]
+    # Coins from xgb coins_registry (shown in report even with 0 closed trades)
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+      - SOLUSDT
+      - BNBUSDT
+      - XRPUSDT
+      - DOGEUSDT
+      - ADAUSDT
+      - TRXUSDT
+      - XLMUSDT
+      - VETUSDT
     path: /home/xgb
     parser: none
     process_match: ["live_trade", "xgb"]
-    screen_match: ["xxobster2", "xxobster13"]
+    screen_match: ["xxobster2", "xxobster13", "xxobster_"]
 
   divergences:
     serve_candles: true

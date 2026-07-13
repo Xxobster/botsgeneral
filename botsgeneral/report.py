@@ -74,15 +74,28 @@ def fetch_closed_pnl(
 
 
 def _account_bot_map(registry: dict) -> dict[str, list[str]]:
+    from botsgeneral.keys import canonicalize_account_name
+
     m: dict[str, list[str]] = {}
     for bot, cfg in (registry.get("bots") or {}).items():
         acc = cfg.get("account")
-        if isinstance(acc, list):
-            for a in acc:
-                m.setdefault(str(a), []).append(bot)
-        elif acc:
-            m.setdefault(str(acc), []).append(bot)
+        names = acc if isinstance(acc, list) else ([acc] if acc else [])
+        for a in names:
+            canon = canonicalize_account_name(str(a))
+            m.setdefault(canon, []).append(bot)
     return m
+
+
+def _expected_symbols(registry: dict, bot_names: list[str]) -> list[str]:
+    """Optional per-bot symbol list from registry for empty-coin visibility."""
+    out: list[str] = []
+    for b in bot_names:
+        cfg = (registry.get("bots") or {}).get(b) or {}
+        for s in cfg.get("symbols") or []:
+            sym = str(s).upper().replace("/", "")
+            if sym and sym not in out:
+                out.append(sym)
+    return out
 
 
 def build_fleet_report(
@@ -108,15 +121,19 @@ def build_fleet_report(
     }
     if preferred:
         use_accounts = {k: v for k, v in accounts.items() if k in preferred}
+        # Warn if registry expects an account we have no keys for
+        missing = sorted(preferred - set(accounts.keys()))
     else:
         use_accounts = accounts
+        missing = []
 
     sitrep = build_sitrep(registry_path=registry_path, vps_id=vps)
     rows = []
     for name in sorted(use_accounts.keys()):
         creds = use_accounts[name]
         summary = account_summary(name, creds)
-        summary["bots"] = acct_bots.get(name, [])
+        bots = acct_bots.get(name, [])
+        summary["bots"] = bots
         try:
             closed = fetch_closed_pnl(creds["api_key"], creds["api_secret"], start_ms)
         except Exception as e:
@@ -127,11 +144,22 @@ def build_fleet_report(
         for t in closed:
             sym = t.get("symbol") or "?"
             by_sym.setdefault(sym, []).append(t)
+        # ensure expected coins appear even with 0 closed trades
+        for sym in _expected_symbols(registry, bots):
+            by_sym.setdefault(sym, [])
+        # also include any open position symbols
+        for p in summary.get("positions") or []:
+            sym = p.get("symbol")
+            if sym:
+                by_sym.setdefault(sym, [])
         per_coin = []
         for sym in sorted(by_sym.keys()):
             m = trade_metrics(by_sym[sym])
             m["symbol"] = sym
             m["n_closed"] = m["n_trades"]
+            # attach open position for this coin if any
+            opens = [p for p in (summary.get("positions") or []) if p.get("symbol") == sym]
+            m["open_positions"] = opens
             per_coin.append(m)
         summary["since"] = since
         summary["closed_all"] = trade_metrics(closed)
@@ -145,6 +173,7 @@ def build_fleet_report(
         "config_path": settings.get("_config_path"),
         "sitrep": sitrep,
         "accounts": rows,
+        "missing_accounts": missing,
     }
 
 
@@ -164,19 +193,27 @@ def build_trades_report(
     acct_bots = _account_bot_map(registry)
 
     target = account_or_bot.strip()
+    from botsgeneral.keys import canonicalize_account_name
+
+    account_name = canonicalize_account_name(target)
     # Resolve bot name → account
-    account_name = target
-    if target not in accounts:
+    if account_name not in accounts:
         for a, bots in acct_bots.items():
             if target.lower() in {b.lower() for b in bots} or target.lower() == a.lower():
                 account_name = a
                 break
         else:
-            # case-insensitive account match
             for a in accounts:
-                if a.lower() == target.lower():
+                if a.lower() == target.lower() or canonicalize_account_name(a) == account_name:
                     account_name = a
                     break
+
+    if account_name not in accounts:
+        # try any canon match
+        for a in accounts:
+            if canonicalize_account_name(a) == canonicalize_account_name(target):
+                account_name = a
+                break
 
     if account_name not in accounts:
         return {"error": f"Unknown account/bot: {target}", "known_accounts": sorted(accounts.keys())}
@@ -230,6 +267,8 @@ def print_fleet_report(report: dict[str, Any]) -> None:
         )
     for w in sitrep.get("warnings") or []:
         print(f"WARN: {w}")
+    for m in report.get("missing_accounts") or []:
+        print(f"WARN: no API keys loaded for account {m}")
 
     print("\n" + "-" * 60)
     print("PnL by account / coin (closed since date + open UPL)")
@@ -284,6 +323,7 @@ def print_fleet_report(report: dict[str, Any]) -> None:
     )
     print("Drilldown:  bots trades <account|bot> [SYMBOL]")
     print("Change since date: edit /etc/botsgeneral/report.yaml")
+    print("Help:             bots --help")
 
 
 def print_trades_report(report: dict[str, Any]) -> None:
