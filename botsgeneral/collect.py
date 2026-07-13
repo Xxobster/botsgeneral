@@ -10,9 +10,15 @@ from botsgeneral.db import CandleDB
 from botsgeneral.discover import detect_vps_id, discover_pairs, load_registry, unique_pairs
 from botsgeneral.fetch import binance_rest, bybit_rest
 from botsgeneral.fetch.bybit_ws import BybitMultiKlineWS
-from botsgeneral.models import CandlePair, CandleRow, TF_MS
-
-log = logging.getLogger(__name__)
+# Min bars before we treat history as "deep enough" (else re-backfill)
+MIN_BARS_OK = {
+    "1m": 50_000,
+    "5m": 50_000,
+    "15m": 30_000,
+    "1h": 10_000,
+    "2h": 8_000,
+    "4h": 5_000,
+}
 
 
 def default_db_path(registry: dict) -> str:
@@ -117,7 +123,7 @@ class Collector:
         for p in pairs:
             count = self.db.candle_count(p)
             # Min bars hint: if far below typical deep history, re-backfill
-            min_ok = {"5m": 20_000, "15m": 10_000, "1h": 5_000, "4h": 2_000}.get(p.timeframe, 2_000)
+            min_ok = MIN_BARS_OK.get(p.timeframe, 5_000)
             need_full = (
                 p.key() not in self._bootstrapped
                 or self._need_schema_bump
