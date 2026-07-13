@@ -17,7 +17,7 @@ vps:
 
 bots:
   news:
-    serve_candles: false
+    serve_candles: true
     exchange: binance
     account: Xxobster6
     path: /home/crypto_alpha
