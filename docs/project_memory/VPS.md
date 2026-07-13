@@ -2,7 +2,8 @@
 
 | IP | SSH alias | Collector unit | Bots (candles) |
 |----|-----------|----------------|----------------|
-| 94.156.189.76 | `eventactivities-vps` | `botsgeneral-collector@94.156.189.76` | news (binance), W.I.P (bybit); xgb no-candles |
+| 94.156.189.76 | `eventactivities-vps` | `botsgeneral-collector@94.156.189.76` | W.I.P (bybit); news + xgb **no shared candles** |
+
 | 212.73.150.178 | `poly-vps` | `botsgeneral-collector@212.73.150.178` | divergences, crypthor2, karmaa_mp (bybit) |
 
 ## Bot install paths

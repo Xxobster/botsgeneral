@@ -1,19 +1,17 @@
 # Current State
 
-**Last updated:** 2026-07-13 (evening)
+**Last updated:** 2026-07-13 (news left shared candles)
 
 ## Phase
 
-Collectors live; phone `bots` report + max history backfill shipping.
+Collectors live for bots that opted in. **news** reverted to own Binance REST (`serve_candles: false`, like xgb).
 
 ### Architecture (confirmed)
 
-**botsgeneral** writes shared OHLCV only. Each trading bot **reads** that DB, computes **its own** indicators/features, then decides to trade with **its own** Bybit keys.
+**botsgeneral** writes shared OHLCV for migrated bots. Each trading bot that opted in **reads** that DB. **news** and **xgb** keep independent Binance pulls.
 
 ### Resume
 
-1. Deploy report + history_schema bump; wait for full backfill (5m pairs take a while)
-2. From `/root`: `bots` and `bots trades crypthor2 BTCUSDT`
-3. Edit `/etc/botsgeneral/report.yaml` `since_date` as needed
-4. Keep migrating remaining bots via AGENT_PROMPTS.md
+1. news: no longer a candle consumer — collector should stop binance BTCUSDT 4h for news after registry reload
+2. Keep migrating remaining bots via AGENT_PROMPTS.md (except news/xgb)
 

@@ -14,7 +14,7 @@ vps:
 
 bots:
   news:
-    serve_candles: true
+    serve_candles: false
     exchange: binance
     account: Xxobster6
     path: "C:/projects/news"
