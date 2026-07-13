@@ -36,8 +36,24 @@ if command -v snap >/dev/null 2>&1; then
   done
 fi
 
-# Core dumps
-find / -xdev -name 'core' -o -name 'core.*' 2>/dev/null | head -50 | xargs -r rm -f
+# Core dumps (files only — never directories like numpy/core)
+find /var/crash /tmp /var/tmp /root /home -xdev -type f \( -name 'core' -o -name 'core.[0-9]*' \) -delete 2>/dev/null || true
+
+# Optional bulky caches (safe on trading VPS)
+rm -rf /root/.npm/_cacache 2>/dev/null || true
+rm -rf /root/.cache 2>/dev/null || true
+# Old Cursor/VS Code server leftovers & worktrees (keep current if disk allows)
+if [[ "${BOTSGENERAL_CLEAN_CURSOR:-1}" == "1" ]]; then
+  rm -rf /root/.cursor/worktrees 2>/dev/null || true
+  # prune old cursor-server versions keeping newest
+  if [[ -d /root/.cursor-server/bin ]]; then
+    cd /root/.cursor-server/bin && ls -1t 2>/dev/null | tail -n +2 | xargs -r rm -rf
+  fi
+  if [[ -d /root/.vscode-server/bin ]]; then
+    cd /root/.vscode-server/bin && ls -1t 2>/dev/null | tail -n +2 | xargs -r rm -rf
+  fi
+fi
+
 
 echo "=== LARGEST dirs (top) ==="
 du -xh / --max-depth=2 2>/dev/null | sort -hr | head -25
