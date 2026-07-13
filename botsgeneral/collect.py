@@ -10,6 +10,10 @@ from botsgeneral.db import CandleDB
 from botsgeneral.discover import detect_vps_id, discover_pairs, load_registry, unique_pairs
 from botsgeneral.fetch import binance_rest, bybit_rest
 from botsgeneral.fetch.bybit_ws import BybitMultiKlineWS
+from botsgeneral.models import CandlePair, CandleRow, TF_MS
+
+log = logging.getLogger(__name__)
+
 # Min bars before we treat history as "deep enough" (else re-backfill)
 MIN_BARS_OK = {
     "1m": 50_000,
