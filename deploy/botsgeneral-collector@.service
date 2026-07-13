@@ -11,6 +11,7 @@ Environment=BOTSGENERAL_VPS=%i
 Environment=SHARED_CANDLES_DB=/var/lib/botsgeneral/shared_candles.db
 Environment=BOTSGENERAL_REGISTRY=/opt/botsgeneral/config/bots_registry.yaml
 Environment=BOTSGENERAL_KEYS=/etc/botsgeneral/bybit_keys.txt
+Environment=PYTHONPATH=/opt/botsgeneral
 ExecStart=/opt/botsgeneral/venv/bin/python -m botsgeneral collect
 Restart=always
 RestartSec=5
