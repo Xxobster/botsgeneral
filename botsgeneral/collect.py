@@ -33,12 +33,28 @@ class Collector:
         self.db_path = db_path or default_db_path(self.registry)
         self.db = CandleDB(self.db_path)
         self.discovery_interval = int(self.registry.get("discovery_interval_sec") or 60)
-        self.history_bars = int(self.registry.get("history_bars") or 1000)
+        # 0 = fetch all available history from the exchange
+        self.history_bars = int(self.registry.get("history_bars") if self.registry.get("history_bars") is not None else 0)
+        self.history_schema = str(self.registry.get("history_schema") or "3")
         self._active: set[tuple[str, str, str]] = set()
         self._bootstrapped: set[tuple[str, str, str]] = set()
         self._stop = False
         self._ws = BybitMultiKlineWS(on_candle=self._on_ws_candle)
         self._last_binance_poll = 0.0
+        if self.db.get_meta("history_schema") != self.history_schema:
+            log.warning(
+                "history_schema %s -> %s: will full backfill all pairs",
+                self.db.get_meta("history_schema"),
+                self.history_schema,
+            )
+            self._bootstrapped.clear()
+            self._need_schema_bump = True
+        else:
+            self._need_schema_bump = False
+        if os.environ.get("BOTSGENERAL_FORCE_BACKFILL") == "1":
+            log.warning("BOTSGENERAL_FORCE_BACKFILL=1: full backfill")
+            self._bootstrapped.clear()
+            self._need_schema_bump = True
 
     def _on_ws_candle(self, candle: CandleRow) -> None:
         n = self.db.upsert_candles([candle])
@@ -99,23 +115,36 @@ class Collector:
         self._ws.set_pairs(bybit_pairs)
 
         for p in pairs:
-            if p.key() in self._bootstrapped and self.db.candle_count(p) > 10:
-                # light refresh of recent bars
+            count = self.db.candle_count(p)
+            # Min bars hint: if far below typical deep history, re-backfill
+            min_ok = {"5m": 20_000, "15m": 10_000, "1h": 5_000, "4h": 2_000}.get(p.timeframe, 2_000)
+            need_full = (
+                p.key() not in self._bootstrapped
+                or self._need_schema_bump
+                or count < min_ok
+            )
+            if not need_full:
                 try:
                     self._refresh_recent(p)
                 except Exception:
                     log.exception("refresh failed for %s", p)
                 continue
             try:
-                log.info("Bootstrapping %s (%s bars)", p, self.history_bars)
+                target = "MAX" if self.history_bars <= 0 else str(self.history_bars)
+                log.info("Bootstrapping %s (target=%s bars, have=%s)", p, target, count)
                 if p.exchange == "bybit":
                     n = bybit_rest.upsert_pair(self.db, p, limit=self.history_bars)
                 else:
                     n = binance_rest.upsert_pair(self.db, p, limit=self.history_bars)
-                log.info("Bootstrapped %s -> %s rows", p, n)
+                log.info("Bootstrapped %s -> upserted %s (db now %s)", p, n, self.db.candle_count(p))
                 self._bootstrapped.add(p.key())
             except Exception:
                 log.exception("bootstrap failed for %s", p)
+
+        if self._need_schema_bump and pairs and all(p.key() in self._bootstrapped for p in pairs):
+            self.db.set_meta("history_schema", self.history_schema)
+            self._need_schema_bump = False
+            log.info("history_schema set to %s", self.history_schema)
 
     def _refresh_recent(self, pair: CandlePair) -> None:
         if pair.exchange == "bybit":

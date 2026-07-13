@@ -3,7 +3,10 @@
 
 discovery_interval_sec: 60
 default_db_path: /var/lib/botsgeneral/shared_candles.db
-history_bars: 1000
+# 0 = fetch maximum history available from the exchange (paginate until empty)
+history_bars: 0
+# bump to force a full re-backfill on next collector start
+history_schema: "3"
 
 # Hostname / IP → which bot entries apply (collector uses BOTSGENERAL_VPS or auto-detect)
 vps:

@@ -1,0 +1,7 @@
+# Phone-friendly report settings (copy to /etc/botsgeneral/report.yaml on VPS)
+# Change since_date anytime — no code deploy needed.
+
+since_date: "2026-07-09"   # YYYY-MM-DD — PnL / trades counted from this day (UTC)
+
+# Optional filters for default `bots` summary (empty = all accounts on this VPS)
+# accounts: []

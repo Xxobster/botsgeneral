@@ -12,7 +12,8 @@ log = logging.getLogger(__name__)
 BYBIT_BASE = "https://api.bybit.com"
 
 
-def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
+def fetch_klines(pair: CandlePair, limit: int = 0) -> list[CandleRow]:
+    """Fetch Bybit klines. limit<=0 means paginate until exchange has no more history."""
     if pair.exchange != "bybit":
         raise ValueError(f"bybit_rest called for {pair.exchange}")
     interval = BYBIT_INTERVAL.get(pair.timeframe)
@@ -21,7 +22,9 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
     # paginate backwards for history
     end = int(time.time() * 1000)
     all_rows: dict[int, CandleRow] = {}
-    remaining = limit
+    # 0 / negative = fetch everything available (hard cap avoids infinite loops)
+    hard_cap = 1_000_000 if limit <= 0 else limit
+    remaining = hard_cap
     while remaining > 0:
         batch = min(1000, remaining)
         params = {
@@ -49,6 +52,7 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
         lst = (data.get("result") or {}).get("list") or []
         if not lst:
             break
+        before = len(all_rows)
         for item in lst:
             # [start, open, high, low, close, volume, turnover]
             ts = int(item[0])
@@ -64,17 +68,20 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
                 volume=float(item[5]),
                 quote_volume=float(item[6]) if len(item) > 6 else None,
             )
+        if len(all_rows) == before:
+            break
         oldest = min(int(x[0]) for x in lst)
         if oldest >= end:
             break
         end = oldest - 1
-        remaining = limit - len(all_rows)
+        remaining = hard_cap - len(all_rows)
         if len(lst) < batch:
             break
         time.sleep(0.12)
+    log.info("Bybit fetched %s bars for %s", len(all_rows), pair)
     return [all_rows[k] for k in sorted(all_rows)]
 
 
-def upsert_pair(db, pair: CandlePair, limit: int = 1000) -> int:
+def upsert_pair(db, pair: CandlePair, limit: int = 0) -> int:
     rows = fetch_klines(pair, limit=limit)
     return db.upsert_candles(rows)

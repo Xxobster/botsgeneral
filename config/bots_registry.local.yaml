@@ -1,7 +1,8 @@
 # Dev/local registry — points at Windows project trees for discovery testing.
 discovery_interval_sec: 60
 default_db_path: data/shared_candles.db
-history_bars: 200
+history_bars: 0
+history_schema: "3"
 
 vps:
   "local":

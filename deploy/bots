@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Phone-friendly shortcut from /root — usage:
+#   bots
+#   bots trades Xxobster4 BTCUSDT
+#   bots trades crypthor2
+set -euo pipefail
+ROOT=/opt/botsgeneral
+export PYTHONPATH="${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+export BOTSGENERAL_KEYS="${BOTSGENERAL_KEYS:-/etc/botsgeneral/bybit_keys.txt}"
+export BOTSGENERAL_REPORT_CFG="${BOTSGENERAL_REPORT_CFG:-/etc/botsgeneral/report.yaml}"
+export SHARED_CANDLES_DB="${SHARED_CANDLES_DB:-/var/lib/botsgeneral/shared_candles.db}"
+PY="${ROOT}/venv/bin/python"
+if [[ $# -eq 0 ]]; then
+  exec "$PY" -m botsgeneral report
+fi
+case "$1" in
+  trades|sitrep|pnl|discover|report|backfill)
+    exec "$PY" -m botsgeneral "$@"
+    ;;
+  *)
+    exec "$PY" -m botsgeneral report "$@"
+    ;;
+esac

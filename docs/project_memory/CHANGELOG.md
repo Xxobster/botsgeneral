@@ -1,8 +1,8 @@
 # Changelog
 
-## 2026-07-13
+## 2026-07-13 (evening)
 
-- Initial botsgeneral: shared SQLite candles, Bybit multi-kline WS, Binance REST, auto-discovery, sitrep, pnl.
-- Deployed collectors on 94.156.189.76 and 212.73.150.178 (systemd template units).
-- Added `docs/project_memory/*` and standing `RULES.md`.
-- Agent handoff prompts in repo root `AGENT_PROMPTS.md`.
+- Max candle history (`history_bars: 0` + `history_schema: 3`) — paginate until exchange empty.
+- Phone report: `bots` / `bots trades <account|bot> [SYMBOL]`; since date in `/etc/botsgeneral/report.yaml`.
+- Disk cleanup script `deploy/cleanup_disk.sh`.
+- Confirmed architecture: botsgeneral = OHLCV only; each trading bot computes its own indicators and decides.

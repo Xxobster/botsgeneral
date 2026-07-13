@@ -13,6 +13,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", default=None, help="Path to shared_candles.db")
     parser.add_argument("--vps", default=None, help="VPS id override (e.g. 94.156.189.76)")
     parser.add_argument("--keys", default=None, help="Bybit keys file or keys.env")
+    parser.add_argument("--report-cfg", default=None, help="Path to report.yaml (since_date)")
+    parser.add_argument("--since", default=None, help="Override since date YYYY-MM-DD")
     parser.add_argument("-v", "--verbose", action="store_true")
 
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -22,8 +24,21 @@ def main(argv: list[str] | None = None) -> int:
     p_disc.add_argument("--json", action="store_true")
     p_sit = sub.add_parser("sitrep", help="Host + bot + candle freshness report")
     p_sit.add_argument("--json", action="store_true")
-    p_pnl = sub.add_parser("pnl", help="PnL / equity summary across accounts")
+    p_pnl = sub.add_parser("pnl", help="Quick wallet/positions summary")
     p_pnl.add_argument("--json", action="store_true")
+
+    p_rep = sub.add_parser(
+        "report",
+        help="Full fleet report: health + PnL since date by account/coin (phone-friendly)",
+    )
+    p_rep.add_argument("--json", action="store_true")
+
+    p_tr = sub.add_parser("trades", help="Trade drilldown for one account/bot [SYMBOL]")
+    p_tr.add_argument("account", help="Account (Xxobster4) or bot name (crypthor2)")
+    p_tr.add_argument("symbol", nargs="?", default=None, help="Optional SYMBOL e.g. BTCUSDT")
+    p_tr.add_argument("--json", action="store_true")
+
+    sub.add_parser("backfill", help="Force max-history candle backfill once then exit")
 
     args = parser.parse_args(argv)
     if args.vps:
@@ -37,6 +52,15 @@ def main(argv: list[str] | None = None) -> int:
         from botsgeneral.collect import run_collect
 
         return run_collect(registry_path=args.registry, db_path=args.db, vps_id=args.vps)
+
+    if args.cmd == "backfill":
+        os.environ["BOTSGENERAL_FORCE_BACKFILL"] = "1"
+        from botsgeneral.collect import Collector
+
+        c = Collector(registry_path=args.registry, db_path=args.db, vps_id=args.vps)
+        c._discovery_and_bootstrap()
+        c.db.close()
+        return 0
 
     if args.cmd == "discover":
         from botsgeneral.discover import detect_vps_id, discover_pairs, load_registry, unique_pairs
@@ -83,6 +107,39 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(report, indent=2, default=str))
         else:
             print_pnl(report)
+        return 0
+
+    if args.cmd == "report":
+        from botsgeneral.report import build_fleet_report, print_fleet_report
+
+        report = build_fleet_report(
+            keys_path=args.keys,
+            registry_path=args.registry,
+            report_cfg_path=args.report_cfg,
+            vps_id=args.vps,
+            since_date=args.since,
+        )
+        if args.json:
+            print(json.dumps(report, indent=2, default=str))
+        else:
+            print_fleet_report(report)
+        return 0
+
+    if args.cmd == "trades":
+        from botsgeneral.report import build_trades_report, print_trades_report
+
+        report = build_trades_report(
+            account_or_bot=args.account,
+            symbol=args.symbol,
+            keys_path=args.keys,
+            registry_path=args.registry,
+            report_cfg_path=args.report_cfg,
+            since_date=args.since,
+        )
+        if args.json:
+            print(json.dumps(report, indent=2, default=str))
+        else:
+            print_trades_report(report)
         return 0
 
     return 1

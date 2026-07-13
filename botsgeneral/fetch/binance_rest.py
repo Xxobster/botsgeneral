@@ -12,7 +12,8 @@ log = logging.getLogger(__name__)
 BINANCE_FUTURES = "https://fapi.binance.com"
 
 
-def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
+def fetch_klines(pair: CandlePair, limit: int = 0) -> list[CandleRow]:
+    """Fetch Binance futures klines. limit<=0 means paginate until no more history."""
     if pair.exchange != "binance":
         raise ValueError(f"binance_rest called for {pair.exchange}")
     interval = BINANCE_INTERVAL.get(pair.timeframe)
@@ -30,7 +31,8 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
     # paginate
     end = None
     all_rows: dict[int, CandleRow] = {}
-    remaining = limit
+    hard_cap = 1_000_000 if limit <= 0 else limit
+    remaining = hard_cap
     while remaining > 0:
         batch = min(1500, remaining)
         params = {"symbol": pair.symbol, "interval": interval, "limit": batch}
@@ -46,6 +48,7 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
         lst = r.json()
         if not lst:
             break
+        before = len(all_rows)
         for item in lst:
             ts = int(item[0])
             all_rows[ts] = CandleRow(
@@ -63,21 +66,24 @@ def fetch_klines(pair: CandlePair, limit: int = 1000) -> list[CandleRow]:
                 taker_buy_base=float(item[9]),
                 taker_buy_quote=float(item[10]),
             )
+        if len(all_rows) == before:
+            break
         oldest = int(lst[0][0])
         if end is not None and oldest >= end:
             break
         end = oldest - 1
-        remaining = limit - len(all_rows)
+        remaining = hard_cap - len(all_rows)
         if len(lst) < batch:
             break
         time.sleep(0.05)
+    log.info("Binance fetched %s bars for %s", len(all_rows), pair)
     return [all_rows[k] for k in sorted(all_rows)]
 
 
-def upsert_pair(db, pair: CandlePair, limit: int = 1000) -> int:
+def upsert_pair(db, pair: CandlePair, limit: int = 0) -> int:
     rows = fetch_klines(pair, limit=limit)
     return db.upsert_candles(rows)
 
 
 def poll_recent(pair: CandlePair, limit: int = 5) -> list[CandleRow]:
-    return fetch_klines(pair, limit=limit)
+    return fetch_klines(pair, limit=max(limit, 1))
