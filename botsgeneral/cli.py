@@ -40,6 +40,32 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("backfill", help="Force max-history candle backfill once then exit")
 
+    p_rc = sub.add_parser(
+        "research-candles",
+        help="Download shared research candles to D:\\projectsdata\\candles",
+    )
+    p_rc.add_argument(
+        "--only",
+        default="dukascopy,yahoo,binance,btcd",
+        help="Comma list: dukascopy,yahoo,binance,btcd",
+    )
+    p_rc.add_argument("--full", action="store_true", help="Full refetch (ignore incremental)")
+    p_rc.add_argument(
+        "--symbols",
+        default="",
+        help="Optional comma list of symbols to update only (e.g. BTCUSDT,ETHUSDT)",
+    )
+    p_rc.add_argument(
+        "--timeframes",
+        default="",
+        help="Optional comma list of TFs to update only (e.g. 5m,1h,4h,1d,1w)",
+    )
+    p_rc.add_argument(
+        "--price-type",
+        default="last",
+        help="Binance only: last, mark, or both. Mark stored as source=binance_mark",
+    )
+
     args = parser.parse_args(argv)
     if args.vps:
         os.environ["BOTSGENERAL_VPS"] = args.vps
@@ -141,6 +167,22 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print_trades_report(report)
         return 0
+
+    if args.cmd == "research-candles":
+        from botsgeneral.research_candles.download_all import run
+
+        only = {x.strip().lower() for x in args.only.split(",") if x.strip()}
+        symbols = {x.strip().upper() for x in args.symbols.split(",") if x.strip()} or None
+        timeframes = {x.strip().lower() for x in args.timeframes.split(",") if x.strip()} or None
+        raw_pt = [x.strip().lower() for x in args.price_type.split(",") if x.strip()]
+        price_types = ("last", "mark") if "both" in raw_pt else (tuple(raw_pt) or ("last",))
+        return run(
+            only=only,
+            incremental=not args.full,
+            symbols=symbols,
+            timeframes=timeframes,
+            price_types=price_types,
+        )
 
     return 1
 

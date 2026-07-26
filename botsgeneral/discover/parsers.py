@@ -30,6 +30,8 @@ def parse_bot(name: str, bcfg: dict[str, Any]) -> list[CandlePair]:
         pairs = _parse_crypthor(root, exchange)
     elif parser == "karmaa_config":
         pairs = _parse_karmaa(root, exchange)
+    elif parser == "tsm_vpa_pack":
+        pairs = _parse_tsm_vpa_pack(root, exchange)
     else:
         log.warning("Unknown parser %s for bot %s", parser, name)
         return []
@@ -183,3 +185,32 @@ def _parse_karmaa(root: Path, exchange: str) -> list[CandlePair]:
                 )
             ]
     return [CandlePair(exchange, "BTCUSDT", "5m")]
+
+
+def _parse_tsm_vpa_pack(root: Path, exchange: str) -> list[CandlePair]:
+    """Read live pack JSON: symbols + timeframe (default configs/live_top4_stack2_rr15_v1.json)."""
+    import json
+
+    candidates = [
+        root / "configs" / "live_top4_stack2_rr15_v1.json",
+        root / "config" / "live_pack.json",
+    ]
+    # Prefer any configs/live_*.json if default missing
+    live_dir = root / "configs"
+    if live_dir.is_dir():
+        candidates.extend(sorted(live_dir.glob("live_*.json")))
+
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    ex = (data.get("candles_exchange") or data.get("venue") or exchange or "bybit").lower()
+    if ex in ("usdt_linear_perpetual", "bybit"):
+        ex = "bybit"
+    tf = normalize_timeframe(data.get("timeframe") or "1d")
+    out: list[CandlePair] = []
+    for sym in data.get("symbols") or []:
+        s = normalize_symbol(str(sym))
+        if s:
+            out.append(CandlePair(ex, s, tf))
+    return out

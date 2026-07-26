@@ -122,7 +122,23 @@ def unique_pairs(items: list[tuple[CandlePair, str]]) -> list[CandlePair]:
     return out
 
 
+def path_appears_in_blob(path: str, blob: str) -> bool:
+    """True if path appears as its own install root, not as a prefix of a sibling dir.
+
+    `/home/xgb` must not match `/home/xgb_match/...`.
+    """
+    path = str(path or "").rstrip("/\\")
+    if not path:
+        return False
+    # Require path end or a path separator / quote / whitespace after the match.
+    pat = re.escape(path) + r"(?:[/\\]|\s|\"|'|$)"
+    return re.search(pat, blob, flags=re.IGNORECASE) is not None
+
+
 def _is_running(bcfg: dict, screens: list[str], systemd: list[str], proc_blob: str) -> bool:
+    # Generic process tokens shared by multiple bots — never enough alone
+    generic_proc = {"run_live", "run_live_bot", "live_trade", "python", "python3"}
+
     for s in bcfg.get("screen_match") or []:
         if any(s.lower() in scr.lower() for scr in screens):
             return True
@@ -133,13 +149,19 @@ def _is_running(bcfg: dict, screens: list[str], systemd: list[str], proc_blob: s
     for s in bcfg.get("systemd_match") or []:
         if any(s.lower() in u.lower() for u in systemd):
             return True
-    for m in bcfg.get("process_match") or []:
+
+    path = str(bcfg.get("path") or "")
+    if path_appears_in_blob(path, proc_blob):
+        return True
+
+    distinctive = [
+        str(m)
+        for m in (bcfg.get("process_match") or [])
+        if m and str(m).lower() not in generic_proc
+    ]
+    for m in distinctive:
         if m.lower() in proc_blob.lower():
             return True
-    # path-based: if ExecStart appears in process list
-    path = str(bcfg.get("path") or "")
-    if path and path in proc_blob:
-        return True
     return False
 
 

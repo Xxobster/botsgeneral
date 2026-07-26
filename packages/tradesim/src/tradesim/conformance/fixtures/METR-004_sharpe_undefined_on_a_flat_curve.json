@@ -1,0 +1,21 @@
+{
+  "ids": [
+    "METR-004"
+  ],
+  "kind": "metrics",
+  "title": "Zero dispersion makes Sharpe undefined, not infinite and not zero",
+  "rationale": "",
+  "returns": [
+    0.01,
+    0.01,
+    0.01
+  ],
+  "expect": {
+    "metrics": {
+      "sharpe.raw_periodic": "nan",
+      "sharpe.available": false,
+      "sharpe.reason": "zero return dispersion"
+    }
+  },
+  "tolerance": 1e-09
+}

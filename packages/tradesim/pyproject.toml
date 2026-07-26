@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradesim"
+version = "1.0.0"
+description = "Shared, conformance-tested trade-execution engine for bracketed perpetual/futures strategies"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = [
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+]
+
+# The conformance checker drives pytest. Keep it out of the runtime dependency set so a
+# research repository can install the engine without a test runner.
+[project.optional-dependencies]
+conformance = ["pytest>=7.4"]
+
+[project.scripts]
+tradesim-conformance = "tradesim.conformance.checker:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["tradesim*"]
+
+[tool.setuptools.package-data]
+"tradesim.conformance" = ["fixtures/*.json"]
+
+[tool.pytest.ini_options]
+markers = [
+  "conformance(*ids): binds a test to one or more conformance identifiers (AREA-NNN)",
+]
+testpaths = ["tests"]

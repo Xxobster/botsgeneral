@@ -14,6 +14,7 @@ These apply to **all** bot projects. botsgeneral is infrastructure (candles/sitr
 - Binance credentials: `C:\projects\BASE CURSOR\api key binance.txt` (also mirror under `C:\projects\xgb` where used). Public klines OK; still load keys when auth is needed.
 - Bybit trading keys: `C:\projects\BASE CURSOR\api keys bybit.txt` — never commit secrets.
 - Candle acquisition for the fleet: **botsgeneral** one collector per VPS → `/var/lib/botsgeneral/shared_candles.db`. Trading bots **read** shared DB after migration; **xgb** keeps its own Binance pull by explicit choice.
+- Local research / backtest OHLCV warehouse (Windows): `D:\projectsdata\candles\market_ohlcv.sqlite` via `botsgeneral.research_candles` (Dukascopy macro/FX, Yahoo cross-checks, Binance futures crypto). Do not re-download the same series per project when this DB already has it.
 
 ## VPS ops
 

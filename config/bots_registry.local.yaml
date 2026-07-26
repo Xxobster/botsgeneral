@@ -6,9 +6,9 @@ history_schema: "3"
 
 vps:
   "local":
-    bots: [news, wip, divergences, crypthor2, karmaa_mp, xgb]
+    bots: [news, wip, divergences, crypthor2, karmaa_mp, xgb, tsm_vpa]
   "94.156.189.76":
-    bots: [news, wip, xgb]
+    bots: [news, xgb, xgb_match, tsm_vpa]
   "212.73.150.178":
     bots: [divergences, crypthor2, karmaa_mp]
 
@@ -35,12 +35,22 @@ bots:
   xgb:
     serve_candles: false
     exchange: binance
-    account: [Xxobster2, Xxobster13]
+    account: Xxobster2
     symbols: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, TRXUSDT, XLMUSDT, VETUSDT]
     path: "C:/projects/xgb"
     parser: none
-    process_match: ["live_trade"]
-    screen_match: ["xxobster"]
+    process_match: ["vps_run_asset_live.py", "live_trade"]
+    screen_match: ["xxobster2"]
+
+  xgb_match:
+    serve_candles: false
+    exchange: binance
+    account: Xxobster13
+    symbols: [BTCUSDT, ETHUSDT]
+    path: "C:/projects/xgb"
+    parser: none
+    process_match: ["vps_run_asset_live_match.py"]
+    screen_match: ["xxobster13"]
 
   divergences:
     serve_candles: true
@@ -69,3 +79,13 @@ bots:
     parser: karmaa_config
     process_match: ["karmaa"]
     screen_match: ["Xxobster5"]
+
+  tsm_vpa:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster5
+    path: "D:/projects/TSM-VPA"
+    parser: wip_fleet
+    process_match: ["run_live_bot", "tsm-vpa"]
+    systemd_prefix: tsm-vpa@
+    screen_match: ["tsm-vpa"]

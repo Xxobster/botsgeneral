@@ -1,0 +1,154 @@
+---
+description: Non-negotiable safety, evidence, parity and authorization rules for automated trading research and live bots
+alwaysApply: true
+---
+
+# Trading-bot core rule
+
+When a task touches market data, indicators, signals, strategy research, optimization, machine learning, backtesting, walk-forward validation, portfolio simulation, risk, shadow trading or live execution, read and obey:
+
+1. `docs/project_memory/TRADING_BOT_RESEARCH_STANDARD_V2.md`
+2. `docs/project_memory/FROZEN_DEFAULT_GATES_V2_1.md`
+3. `docs/project_memory/TRADING_PROJECT_PROFILE.md`
+4. relevant current-state, decision, testing and live/backtest-parity documentation
+5. the canonical research engine, strategy module and live runner
+
+If these paths differ, locate the repository equivalents and record the mapping. If the detailed standard or completed project profile is absent, install/create it before claiming a strategy has passed research or live-readiness gates.
+
+## Authority and objective
+
+- The objective is to determine whether the exact executable strategy has a reproducible post-cost edge—not to create attractive backtest numbers.
+- A negative result or an abandoned strategy family is a valid successful research outcome.
+- No profitability result overrides leakage, invalid data, unrealistic execution, incorrect accounting, selection on OOS, infeasible orders, liquidation uncertainty or missing authorization.
+- Methodological truth constraints cannot be weakened by a project preference. Numerical thresholds and risk limits may change only before the relevant OOS/forward evidence is viewed; freeze, timestamp and hash the change.
+- Default state is `LIVE_STOP / RESEARCH_ONLY`.
+
+## Authorization
+
+Do not deploy, sync to a VPS, restart/stop/enable a live bot, place/amend/cancel an order, alter a live configuration, overwrite frozen parameters, change live leverage or size, transfer funds, remove protective orders, delete evidence, commit, push or open a PR unless the user explicitly authorized that exact action.
+
+Research, optimization, audit, backtest, shadow or “make it live-ready” authorization does not imply deployment authorization.
+
+Before edits, inspect repository instructions and `git status --short`. Preserve unrelated changes and existing functions/features unless removal is explicitly requested. At completion, identify pre-existing versus task changes and report `git diff --stat` when Git is present.
+
+Never expose secrets. Store only references to credentials. Redact keys, signatures, tokens, account identifiers and private endpoint payloads from logs and reports.
+
+## Stop-before-optimize rule
+
+Before alpha work, the canonical engine must pass relevant data, causality, execution, cost, funding, quantity, margin, metric, validation and portfolio regression tests.
+
+If live/backtest mismatch, leakage, metric gaming, venue mismatch or accounting failure is found:
+
+1. stop optimization;
+2. invalidate affected results and inherited readiness;
+3. fix the canonical engine, not only the report;
+4. add a regression test;
+5. rerun every affected experiment;
+6. report the evidence and maximum earned status.
+
+Never optimize TP/SL, multi-TP, break-even, leverage, size, filters, symbols or fleet composition on an invalid simulator.
+
+## Backtest engine conformance (read before writing or trusting any simulator)
+
+- **Do not write a new trade simulator.** Use the shared conformant engine as a pinned library dependency. If the contract genuinely differs, extend it; a separate implementation must pass the shared golden fixture pack and produce an explained trade-by-trade parity diff first.
+- **The entry bar is not exempt.** A position is exposed the instant it fills, so the bar that fills the entry must be resolved for stop, target, liquidation and trailing/break-even activation in the same step that opens the position. Use one shared exit-resolution function for the entry bar and every later bar; never a separate entry-bar path. Opening at a bar and starting exit checks on the next bar grants every trade a free bar of immunity and is the single most damaging repeated defect in this codebase family: on a daily strategy it hid that 47.6% of trades were stopped out on their entry day, and fixing it moved out-of-sample Profit Factor 1.50 → 0.90 and Sharpe +1.32 → −0.31.
+- A same-bar round trip still pays both fills' fees, its slippage and the funding settlements inside its holding window. Label it distinguishably (e.g. `stop_entry_bar`) and report its frequency; above 25% the stop is inside single-bar noise and the report must say so.
+- **A green test suite is not parity evidence.** Mandatory behaviours carry conformance identifiers (`EXEC-001` … `EXEC-017`, and the `DATA`/`CAUS`/`FUND`/`QTY`/`METR`/`VALD`/`PORT`/`LIVE` areas). Each must be bound to a discoverable test, and a **missing** binding must fail the build exactly like a failing test. `EXEC-010`…`EXEC-016` (entry-bar stop, target, both, liquidation, quiet negative control, funding, hold count) are jointly non-negotiable.
+- **Stamp every result** with engine name, version, commit, fixture-pack hash and conformance pass state. A number without a green conformance stamp is not quotable evidence, in any report, at any readiness level — including numbers already published in earlier summaries.
+- Upgrading the engine is a material change: it invalidates inherited readiness and affected experiments must be rerun before their numbers are quoted again.
+
+## Product and data parity
+
+- Define the target venue, exact product, symbol, settlement, signal/execution prices, session/timezone, account/margin/position mode, order types, triggers, sizing, leverage, capital and portfolio rules before evaluating results.
+- Primary deployment evidence uses native target-venue/product data from the product launch onward. Other venues/products are labelled `RESEARCH_PROXY` and cannot create a parity PASS.
+- Persist timestamped instrument specifications: launch/delivery, tick, quantity step, min/max quantity/notional, leverage limits, risk tiers, funding interval and relevant order limits.
+- Store data and evidence in SQLite. Raw series require source, retrieval time, UTC timestamp semantics, checksum/version and deterministic keys.
+- Reject or explicitly skip duplicates, gaps, stale/incomplete candles, invalid OHLC, pre-launch bars, timezone/session errors and insufficient feature coverage. Never silently fill OHLC or let missing data confirm a filter.
+
+## Causality and code parity
+
+- A close-based signal is known only after the candle closes; it cannot fill retroactively at that close.
+- Higher-timeframe features use only completed, correctly lagged candles.
+- No negative shifts, centered windows, future backfill, future publication/revision values, full-history normalization/quantiles, OOS-fitted scaler or final OOS tuning.
+- Fit every learned transform inside its training window. Apply purge/embargo when labels or positions overlap boundaries.
+- Use one shared versioned strategy function for research and live wherever possible. Separate implementations require broad deterministic golden-fixture parity tests.
+- Future-mutation, truncation, streaming/batch and off-by-one tests must prove that changing future data cannot alter earlier actionable outputs.
+
+## Execution and accounting parity
+
+- Model the actual live order type, time-in-force, latency, spread, slippage, queue/non-fill behavior, partial fills, rejections, retries, gaps and price/quantity rounding.
+- Maintain a conservative executable all-taker/next-executable scenario. A maker scenario cannot rescue a failing result without adequate fill evidence.
+- **Bybit USDT perp fees (canonical):** `Fee = Qty × ExecutedPrice × Rate` per fill. Non-VIP baseline taker **0.055%**, maker **0.02%** ([Fees Explained](https://www.bybit.com/en/help-center/article/Perpetual-Futures-Contract-Fees-Explained)). Slippage changes fill price; it is **not** added into the fee rate. Limit orders are maker only if they rest; crossing limits are taker; Post-Only = maker-or-cancel. If TP/SL maker fills are not proven, BT with **taker on exits** but **no exit slip** on limit TP/SL touch prices.
+- Charge fee per fill. Apply actual signed historical funding once at each settlement while the position is open. Funding affects wallet, margin, equity and liquidation chronologically.
+- TP/SL and risk are based on actual simulated/live fills, not signal prices.
+- Resolve same-bar entry/exit, TP/SL/BE/trailing/liquidation ambiguity with lower-timeframe target-venue data. If unresolved, use the adverse feasible sequence, label it and report sensitivity.
+- Normalize orders with current exchange rules. If the minimum executable order exceeds the risk cap, skip it. Reject non-executable partial exits; never round a leg to zero or silently change exit logic.
+- Leverage is not alpha and does not change fixed-quantity PnL. Choose it only after sizing, using the lowest operational value that satisfies the frozen capital constraint plus conservative margin/liquidation buffers. Practical max before liq from SL alone: `floor(1 / (sl_pct + mm_buffer + mark_buffer))` then haircut (e.g. mm≈0.5%, mark≈0.2%); still not a substitute for full Mark/tier liquidation evidence.
+- Backtest liquidation and margin at the **same leverage the live bot will use** (derive it from the frozen SL: `floor(1/(sl_pct + mm_buffer + mark_buffer))`). Never backtest at a lower leverage than deployment: it hides gap-through/liquidation risk. Leverage does not change fixed-quantity PnL but does change liquidation distance and margin utilization.
+- Liquidation modelling uses the exact margin mode, maintenance tier, Mark Price, fees, funding, other positions and wallet state. A `1 / leverage` or OHLC-distance proxy is not deployment evidence.
+- Use chronological mark-to-market wallet equity. When bots share capital, deployment evidence comes from one shared-wallet event simulation, not added standalone equity curves.
+
+## Signal decisioning and probabilistic gating
+
+- Turn a probability into a trade with the **decision-theoretic net expected value**, not a flat "round-trip cost" subtracted from a raw score. For a bracket with net-of-fee win magnitude `mu_plus` and net-of-fee loss magnitude `mu_minus` (both in return space, fees charged per fill on each branch's executed notional), the expected value is `EV = p_hat*mu_plus - (1-p_hat)*mu_minus` and the minimum probability to act is the break-even `pi* = (mu_minus + lambda)/(mu_plus + mu_minus)` (`lambda` = risk margin). Trade only if calibrated `p_hat >= pi*` (equivalently `EV > lambda`). Include the no-touch/max-hold branch when the label set has one.
+- `mu_plus`/`mu_minus` must use the **exact per-fill fees** for that branch (entry taker/market + slip; TP limit = maker if proven else taker; SL stop = taker; no-touch market exit = taker + market slip). A profitable single outcome (e.g. a 1% TP that is hit) must show `mu_plus > 0`; if it does not, the fee model is wrong.
+- **Calibrate probabilities before thresholding.** Raw tree/NN scores are usually miscalibrated; fit isotonic (large calibration slice) or Platt/sigmoid (small) on a held-out slice **inside the training window**, apply to OOS and live, and persist the calibrators in the model pack. Report calibration quality (ECE/Brier).
+- The decision gate used in research and the gate used live must be the **same code** on the **same cost assumptions**. Never let live run on a cheaper cost (or a silent default) than the backtest. If a live pack is missing its cost/fee configuration, **fail loud** — never fall back to a phantom default.
+- The break-even math is a floor, not the edge: a favorable reward:risk (e.g. 1:2 TP:SL) still needs a high hit-probability; costs only shift `pi*` slightly. Do not attribute an over-strict gate to fees when it is really the reward:risk geometry.
+
+## Research and validation honesty
+
+- Before a search, register and hash the hypothesis, economic rationale, complete candidate space, symbol/side/timeframe choices, costs, folds, selection objective, tie-breaker, seed, search budget and frozen gates.
+- Store every attempted, failed, interrupted and manually inspected trial. Do not reset trial history between scripts or sessions.
+- Derive per-fold/trial seeds deterministically from one recorded root seed.
+- All selection—including family, feature, symbol, direction, timeframe, exits and portfolio membership—occurs inside chronological inner validation.
+- Evaluate exactly one frozen selection once in each outer test. Never rank or persist winners using outer results.
+- Stitched outer-OOS wallet returns/trades are the headline. Fold summaries are diagnostics. Previously inspected data remain contaminated; only future data after the final freeze can be a pristine lockbox.
+- Research is bounded and hypothesis-driven. Do not add indicators, expand grids, relax gates or keep searching because nothing passed.
+
+## Metrics and evidence
+
+- Headline Sharpe uses chronological periodic mark-to-market wallet returns, normally daily. Report raw periodic and annualized values separately, plus serial-dependence/uncertainty diagnostics.
+- Never use closed-trade Sharpe or mean fold Sharpe as the deployment headline.
+- Headline PF is pooled gross profit divided by absolute pooled gross loss. Never average fold PF or cap it. Zero gross loss is infinity/undefined with an insufficient-sample warning, not an automatic pass.
+- Pool PnL, WR and expectancy from eligible stitched OOS trades. Report WR uncertainty; WR alone is not proof of edge.
+- Drawdown includes unrealized PnL. Report magnitude and duration.
+- DSR uses consistent nonannualized units and the complete relevant trial record. PBO requires a complete aligned candidate-by-time return matrix; otherwise it is unavailable, never zero or PASS.
+- Report periods, trades, trades/month, PnL, return, expectancy, PF, WR, payoff, Sharpe, Sortino, drawdown, exposure, fees, slippage, funding, rejects/skips, liquidation and portfolio concentration.
+
+## Frozen V2.1 historical defaults
+
+Unless a project freezes a stricter or explicitly justified alternative before outer OOS, `SHADOW_READY` requires the complete gate profile, including: at least five eligible non-overlapping outer folds; at least 10 resolved trades per gating fold and 50 pooled OOS trades; pooled PF >= 1.20; annualized daily MTM Sharpe >= 1.00; HAC-adjusted Sharpe >= 0.75; at least 80% positive/PF>1 eligible folds; at least 90% dependence-aware bootstrap resamples with positive expectancy; DSR >= 0.95; moderate-stress PnL > 0 and PF >= 1.05; baseline/stress MDD <= 20%/25%; margin utilization <= 60%; and no liquidation/ruin. PBO <= 0.20 is gated only when a complete valid matrix exists. Win rate is reported, not a universal hard gate.
+
+Never relax these values after viewing the affected OOS. Sparse strategies redesign fold length and forward duration before OOS; they do not score one-trade folds or lower evidence requirements after failure.
+
+## Readiness and live operation
+
+- Historical research alone may earn at most `SHADOW_READY`.
+- `MICRO_LIVE_CANDIDATE` requires frozen historical evidence, forward shadow reconciliation, executable quantities, observed costs within stress assumptions, operational safety tests and no critical unknown.
+- `SCALE_CANDIDATE` requires sufficient micro-live evidence and a separate portfolio/risk review.
+- Readiness never equals authorization. Only the user can approve live activation or increased risk.
+- Any material code, data, strategy, parameter, side, timeframe, exit, cost, size, leverage, margin, portfolio or metric change invalidates prior readiness hashes.
+- Live startup must fail closed on stale data, hash mismatch, missing instrument rules, unknown exchange/local state, infeasible order, duplicate process, missing protective order or exceeded risk limit.
+- Use WebSocket for streaming when appropriate and REST for startup/reconnect/periodic reconciliation. Retries are bounded, idempotent and backoff-aware.
+- Automatic restart may occur only for an authorized deployed service and only after singleton and exchange-state reconciliation. A process being present does not prove health.
+- A close-based live loop schedules on the bar boundary, not a fixed wall-clock poll: idle until `lead_sec` before the close, fast-poll every `close_poll_sec` with the cheapest freshness check, decide exactly once on the newly closed bar, then idle. A bare `sleep(timeframe)` is not acceptable. Timeframe defaults and invariants are in section 22.1 of the detailed standard.
+- Enforce one decision per bar with a persisted `last_processed_bar_ts`, run a catch-up decision on startup so a restart never skips a closed bar, and emit a distinct stale-data event (no action) when a bar does not arrive within `confirm_timeout_sec`. Heartbeats between closes reconcile position, protection and stream freshness only — they never compute signals or open risk.
+
+## Engineering and persistence
+
+- Research/train/backtest/walk-forward run locally unless the user explicitly changes that policy. VPS is live/shadow only.
+- Vectorize indicators, features and bulk calculations with NumPy/pandas/SQL where practical. Use sequential event loops for genuinely path-dependent orders, positions, funding, margin and portfolio state.
+- Use one versioned research core and one authoritative metric implementation. Third-party backtest libraries may be exploratory adapters only after parity tests.
+- SQLite is authoritative. JSON/CSV/Markdown are reproducible exports. Long jobs checkpoint and resume without recomputing valid trials.
+- Update project memory after meaningful changes, but do not let a summary overwrite append-only evidence.
+
+## Required response behavior
+
+Lead every research/audit result with the maximum earned readiness, evidence class and principal blocker—not the best full-history backtest.
+
+When asked for an audit, check engine conformance **first** and report it before any performance number. If required conformance identifiers are unbound, say so as the headline finding and treat every existing performance number as unverified until they are bound and passing.
+
+For `sitrep`, report current stage; live/shadow health if authorized to inspect it; latest completed run; active job and checkpoint; data coverage; trial/fold progress; best valid training/inner result; stitched OOS only if legitimately available; current blockers; files changed; and the next bounded action. Do not call partial or contaminated results final.
+
+Do not stop after a plan when safe, authorized local inspection/implementation/testing can proceed. Do stop and ask when an exact live/destructive action, secret, unavailable authenticated evidence or material risk choice requires user authority.

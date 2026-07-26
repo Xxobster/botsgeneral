@@ -15,31 +15,82 @@ from botsgeneral.keys import resolve_accounts
 
 log = logging.getLogger(__name__)
 BYBIT = "https://api.bybit.com"
+# Bybit rejects requests when |server_ts - req_ts| > recv_window.
+# VPS clocks can lag a few seconds; keep a wide window and sync offset.
+_RECV_WINDOW_MS = "60000"
+_time_offset_ms = 0
+_offset_fetched_at = 0.0
 
 
 def _sign(secret: str, payload: str) -> str:
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
+def _sync_bybit_time_offset(force: bool = False) -> None:
+    """Align local timestamps with Bybit server time (refresh every 5 minutes)."""
+    global _time_offset_ms, _offset_fetched_at
+    now = time.time()
+    if not force and _offset_fetched_at and (now - _offset_fetched_at) < 300:
+        return
+    try:
+        r = requests.get(f"{BYBIT}/v5/market/time", timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        result = data.get("result") or {}
+        # Prefer millisecond precision when available.
+        server_ms = result.get("timeNano")
+        if server_ms is not None:
+            server_ms = int(server_ms) // 1_000_000
+        else:
+            server_ms = int(result.get("timeSecond") or 0) * 1000
+        if server_ms > 0:
+            local_ms = int(time.time() * 1000)
+            _time_offset_ms = server_ms - local_ms
+            _offset_fetched_at = now
+            if abs(_time_offset_ms) > 1000:
+                log.warning("Bybit clock offset %sms", _time_offset_ms)
+    except Exception as e:
+        log.debug("Bybit time sync failed: %s", e)
+
+
+def _bybit_timestamp_ms() -> int:
+    _sync_bybit_time_offset()
+    return int(time.time() * 1000) + int(_time_offset_ms)
+
+
 def bybit_private_get(api_key: str, api_secret: str, path: str, params: dict | None = None) -> dict:
     params = params or {}
-    ts = str(int(time.time() * 1000))
-    recv = "5000"
+    recv = _RECV_WINDOW_MS
     query = urlencode(params)
-    prehash = f"{ts}{api_key}{recv}{query}"
-    sign = _sign(api_secret, prehash)
-    headers = {
-        "X-BAPI-API-KEY": api_key,
-        "X-BAPI-SIGN": sign,
-        "X-BAPI-TIMESTAMP": ts,
-        "X-BAPI-RECV-WINDOW": recv,
-    }
     url = f"{BYBIT}{path}"
     if query:
         url = f"{url}?{query}"
-    r = requests.get(url, headers=headers, timeout=30)
-    r.raise_for_status()
-    return r.json()
+
+    last: dict = {}
+    for attempt in range(2):
+        ts = str(_bybit_timestamp_ms())
+        prehash = f"{ts}{api_key}{recv}{query}"
+        sign = _sign(api_secret, prehash)
+        headers = {
+            "X-BAPI-API-KEY": api_key,
+            "X-BAPI-SIGN": sign,
+            "X-BAPI-TIMESTAMP": ts,
+            "X-BAPI-RECV-WINDOW": recv,
+        }
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        last = r.json()
+        msg = str(last.get("retMsg") or "")
+        # Retry once after forcing a fresh server-time sync.
+        if (
+            attempt == 0
+            and last.get("retCode") not in (0, None)
+            and ("timestamp" in msg.lower() or "recv_window" in msg.lower())
+        ):
+            _sync_bybit_time_offset(force=True)
+            continue
+        return last
+    return last
 
 
 def account_summary(name: str, creds: dict[str, str]) -> dict[str, Any]:

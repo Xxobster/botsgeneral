@@ -1,0 +1,23 @@
+{
+  "ids": [
+    "METR-003"
+  ],
+  "kind": "metrics",
+  "title": "Drawdown is measured peak to trough on the mark-to-market curve",
+  "rationale": "",
+  "equity": [
+    100.0,
+    120.0,
+    90.0,
+    95.0,
+    130.0
+  ],
+  "expect": {
+    "metrics": {
+      "max_drawdown": 30.0,
+      "max_drawdown_pct": 0.25,
+      "max_drawdown_periods": 2
+    }
+  },
+  "tolerance": 1e-09
+}

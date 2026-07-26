@@ -1,0 +1,10 @@
+bots --help
+
+bots                         Full report
+bots report                  Same
+bots trades <acct|bot> [SYM] Drilldown  (bots trades xgb BTCUSDT)
+bots sitrep                  Health only
+bots pnl                     Wallets / opens
+bots discover                Candle pairs
+bots backfill                Max history backfill
+bots --help                  This help

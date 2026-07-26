@@ -2,21 +2,20 @@
 
 | IP | SSH alias | Collector unit | Bots (candles) |
 |----|-----------|----------------|----------------|
-| 94.156.189.76 | `eventactivities-vps` | `botsgeneral-collector@94.156.189.76` | W.I.P (bybit); news + xgb **no shared candles** |
-
-| 212.73.150.178 | `poly-vps` | `botsgeneral-collector@212.73.150.178` | divergences, crypthor2, karmaa_mp (bybit) |
+| 94.156.189.76 | `eventactivities-vps` | `botsgeneral-collector@94.156.189.76` | tsm_vpa (Bybit 1d); xgb sitrep only |
+| 212.73.150.178 | `poly-vps` | `botsgeneral-collector@212.73.150.178` | divergences, crypthor2, karmaa_mp (bybit); news (Binance) |
 
 ## Bot install paths
 
-| Bot | Path | Account |
-|-----|------|---------|
-| news | `/home/crypto_alpha` | Xxobster6 |
-| W.I.P | `/opt/wip` | Xxobster7 |
-| xgb | `/home/xgb` | Xxobster2 / Xxobster13 |
-| divergences | `/opt/divergences` | Xxobster3 |
-| crypthor2 | `/opt/crypthor` | Xxobster4 |
-| karmaa_mp | `/root/karmaa_mp` | Xxobster5 |
-| botsgeneral | `/opt/botsgeneral` | ops / Xxobster for market if needed |
+| Bot | Path | Account | VPS |
+|-----|------|---------|-----|
+| news | `/home/crypto_alpha` | Xxobster6 | 212.73.150.178 |
+| xgb | `/home/xgb` | Xxobster2 | 94.156.189.76 |
+| tsm_vpa | `/opt/tsm-vpa` | Xxobster5 | 94.156.189.76 |
+| divergences | `/opt/divergences` | Xxobster3 | 212.73.150.178 |
+| crypthor2 | `/opt/crypthor` | Xxobster4 | 212.73.150.178 |
+| karmaa_mp | `/root/karmaa_mp` | Xxobster5 | 212.73.150.178 |
+| botsgeneral | `/opt/botsgeneral` | ops | both |
 
 ## Ops notes
 

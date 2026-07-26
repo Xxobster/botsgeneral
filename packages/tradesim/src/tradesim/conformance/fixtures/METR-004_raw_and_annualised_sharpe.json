@@ -1,0 +1,25 @@
+{
+  "ids": [
+    "METR-004"
+  ],
+  "kind": "metrics",
+  "title": "Raw periodic and annualised Sharpe are separate numbers with a stated factor",
+  "rationale": "",
+  "returns": [
+    0.01,
+    -0.01,
+    0.02,
+    0.0
+  ],
+  "annualisation_days": 365.0,
+  "expect": {
+    "metrics": {
+      "sharpe.raw_periodic": 0.3872983346207417,
+      "sharpe.annualisation_factor": 19.1049731745428,
+      "sharpe.annualised": 7.399324293474371,
+      "sharpe.n_periods": 4,
+      "sharpe.available": true
+    }
+  },
+  "tolerance": 1e-09
+}

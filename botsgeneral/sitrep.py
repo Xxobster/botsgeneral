@@ -109,12 +109,20 @@ def print_sitrep(report: dict) -> None:
     print("\nDiscovered pairs:")
     for p in report.get("discovered_pairs") or []:
         print(f"  {p['exchange']:7} {p['symbol']:10} {p['timeframe']:4} <- {p['bot']}")
-    print("\nCandle freshness:")
+    print("\nCandle freshness (active pairs only):")
+    active = {(p["exchange"], p["symbol"], p["timeframe"]) for p in (report.get("discovered_pairs") or [])}
+    shown = 0
     for f in report.get("candle_freshness") or []:
+        key = (f.get("exchange"), f.get("symbol"), f.get("timeframe"))
+        if active and key not in active:
+            continue
+        shown += 1
         stale = " STALE" if f.get("stale") else ""
         print(
             f"  {f['exchange']:7} {f['symbol']:10} {f['timeframe']:4} "
             f"bars={f['bars']:<5} lag={f.get('lag_sec')}s{stale}"
         )
+    if not shown:
+        print("  (none)")
     for w in report.get("warnings") or []:
         print(f"WARN: {w}")

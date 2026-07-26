@@ -1,0 +1,23 @@
+{
+  "ids": [
+    "METR-002"
+  ],
+  "kind": "metrics",
+  "title": "Zero gross loss is infinity with a sample warning, never an automatic pass",
+  "rationale": "",
+  "pnls": [
+    1.0,
+    2.0,
+    3.0
+  ],
+  "expect": {
+    "metrics": {
+      "profit_factor": "inf",
+      "profit_factor_note": "insufficient-sample warning",
+      "win_rate": 1.0,
+      "win_rate_ci_low": 0.43849391955098227,
+      "win_rate_ci_high": 1.0
+    }
+  },
+  "tolerance": 1e-09
+}

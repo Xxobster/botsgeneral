@@ -11,9 +11,9 @@ history_schema: "4"
 # Hostname / IP → which bot entries apply (collector uses BOTSGENERAL_VPS or auto-detect)
 vps:
   "94.156.189.76":
-    bots: [news, wip, xgb]
+    bots: [xgb, xgb_match, tsm_vpa]
   "212.73.150.178":
-    bots: [divergences, crypthor2, karmaa_mp]
+    bots: [divergences, crypthor2, karmaa_mp, news]
 
 bots:
   news:
@@ -25,36 +25,31 @@ bots:
     process_match: ["crypto_alpha", "run_live_bybit"]
     screen_match: ["crypto_alpha"]
 
-  wip:
-    serve_candles: true
-    exchange: bybit
-    account: Xxobster7
-    path: /opt/wip
-    parser: wip_fleet
-    # Decision TF is 4h; live engine also needs 1h base series
-    also_fetch_timeframes: ["1h"]
-    process_match: ["run_live_bot", "wip"]
-    screen_match: ["wip_"]
-
   xgb:
     serve_candles: false
     exchange: binance
-    account: [Xxobster2, Xxobster13]
+    account: Xxobster2
     symbols:
       - BTCUSDT
       - ETHUSDT
-      - SOLUSDT
-      - BNBUSDT
-      - XRPUSDT
-      - DOGEUSDT
-      - ADAUSDT
-      - TRXUSDT
-      - XLMUSDT
-      - VETUSDT
     path: /home/xgb
     parser: none
-    process_match: ["live_trade", "xgb"]
-    screen_match: ["xxobster2", "xxobster13", "xxobster_"]
+    # Prefer .py so we do not also match vps_run_asset_live_match.py
+    process_match: ["vps_run_asset_live.py"]
+    screen_match: ["xxobster2"]
+
+  # Match-parity xgb deploy (separate tree + Bybit account)
+  xgb_match:
+    serve_candles: false
+    exchange: binance
+    account: Xxobster13
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+    path: /home/xgb_match
+    parser: none
+    process_match: ["vps_run_asset_live_match.py"]
+    screen_match: ["xxobster13"]
 
   divergences:
     serve_candles: true
@@ -88,3 +83,20 @@ bots:
     process_match: ["run_live_bot", "karmaa"]
     screen_match: ["Xxobster5", "karmaa"]
     systemd_match: ["karmaa-mp-live"]
+
+  tsm_vpa:
+    serve_candles: true
+    exchange: bybit
+    # Live pack + systemd use Xxobster5 (not bare Xxobster)
+    account: Xxobster5
+    path: /opt/tsm-vpa
+    parser: tsm_vpa_pack
+    symbols:
+      - VETUSDT
+      - SOLUSDT
+      - XLMUSDT
+      - XRPUSDT
+    process_match: ["tsm-vpa", "vpa.live"]
+    systemd_prefix: "tsm-vpa@"
+    screen_match: ["tsm-vpa"]
+    systemd_match: ["tsm-vpa@"]

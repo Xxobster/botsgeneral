@@ -1,0 +1,98 @@
+{
+  "ids": [
+    "EXEC-020",
+    "CAUS-005"
+  ],
+  "kind": "simulation",
+  "title": "Break-even activation cannot rescue a stop hit on the activating bar",
+  "rationale": "",
+  "instrument": {
+    "symbol": "TESTUSDT",
+    "tick_size": 0.01,
+    "qty_step": 0.001,
+    "min_qty": 0.001,
+    "min_notional": 1.0,
+    "max_leverage": 100.0,
+    "maintenance_rate": 0.005,
+    "funding_interval_ms": 28800000
+  },
+  "costs": {
+    "taker_rate": 0.001,
+    "maker_rate": 0.0004,
+    "entry_slippage": 0.0,
+    "market_exit_slippage": 0.0,
+    "spread": 0.0
+  },
+  "margin": {
+    "mode": "isolated",
+    "leverage": 10.0,
+    "maintenance_buffer": 0.005,
+    "mark_buffer": 0.002,
+    "include_close_fee_in_liquidation": true,
+    "require_stop_inside_liquidation": true
+  },
+  "sizing": {
+    "mode": "fixed_qty",
+    "fixed_qty": 1.0
+  },
+  "sim": {
+    "entry_ref": "next_open",
+    "same_bar_policy": "adverse",
+    "max_hold_bars": null,
+    "starting_equity": 10000.0,
+    "close_at_end_of_data": true,
+    "decision_timeframe": "1m"
+  },
+  "bars": {
+    "timeframe_ms": 60000,
+    "rows": [
+      [
+        0,
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ],
+      [
+        60000,
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ],
+      [
+        120000,
+        100.0,
+        104.0,
+        94.0,
+        95.0
+      ]
+    ]
+  },
+  "touch_bars": null,
+  "funding": [],
+  "signals": [
+    {
+      "ts_ms": 0,
+      "side": 1,
+      "stop_price": 95.0,
+      "target_price": 200.0,
+      "break_even": {
+        "trigger_offset": 0.03,
+        "stop_offset": 0.0
+      }
+    }
+  ],
+  "expect": {
+    "n_trades": 1,
+    "trades": [
+      {
+        "exit_price": 95.0,
+        "exit_reason": "stop",
+        "realized_pnl": -5.195,
+        "ambiguous": true
+      }
+    ]
+  },
+  "tolerance": 1e-09
+}

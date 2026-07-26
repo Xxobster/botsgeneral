@@ -1,0 +1,32 @@
+{
+  "ids": [
+    "METR-005"
+  ],
+  "kind": "metrics",
+  "title": "A serial-dependence-aware Sharpe is reported next to the IID value",
+  "rationale": "",
+  "returns": [
+    0.02,
+    0.015,
+    0.01,
+    -0.01,
+    -0.015,
+    -0.005,
+    0.02,
+    0.018,
+    0.012,
+    -0.012,
+    -0.014,
+    -0.006
+  ],
+  "annualisation_days": 365.0,
+  "expect": {
+    "metrics": {
+      "sharpe.hac_lag": 2,
+      "sharpe.raw_periodic": 0.19321777594723227,
+      "sharpe.hac_raw": 0.16559514202984144,
+      "sharpe.hac_annualised": 3.1636907463147255
+    }
+  },
+  "tolerance": 1e-09
+}

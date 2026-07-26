@@ -1,7 +1,23 @@
 # Phone-friendly report settings (copy to /etc/botsgeneral/report.yaml on VPS)
 # Change since_date anytime — no code deploy needed.
 
-since_date: "2026-07-09"   # YYYY-MM-DD — PnL / trades counted from this day (UTC)
+since_date: "2026-07-09"   # YYYY-MM-DD — default PnL / trades start (UTC)
+
+# Per-bot per-symbol PnL start dates (YYYY-MM-DD UTC). Override anytime in this file.
+# Example:
+# since_by_bot:
+#   xgb:
+#     BTCUSDT: "2026-07-21"
+#     ETHUSDT: "2026-07-23"
+#   tsm_vpa:
+#     VETUSDT: "2026-07-25"
+since_by_bot:
+  xgb:
+    BTCUSDT: "2026-07-21"
+    ETHUSDT: "2026-07-23"
+  xgb_match:
+    BTCUSDT: "2026-07-25"
+    ETHUSDT: "2026-07-25"
 
 # Optional filters for default `bots` summary (empty = all accounts on this VPS)
 # accounts: []
