@@ -151,6 +151,21 @@ class TestOutcome:
     node_id: str
     status: str  # PASSED | FAILED | SKIPPED | ERROR | NOT_COLLECTED
     detail: str = ""
+    file: str = ""
+
+
+def _report_file(report: Any) -> str:  # noqa: ANN401
+    """Absolute path of the file a report came from.
+
+    ``report.nodeid`` is relative to the pytest rootdir and its path component comes out
+    empty when the suite and the invocation directory sit on different Windows drives,
+    so the file is carried separately rather than parsed back out of the node id.
+    """
+    path = getattr(report, "path", None)
+    if path is not None:
+        return str(path)
+    fspath = getattr(report, "fspath", None)
+    return str(fspath) if fspath else ""
 
 
 class _Collector:
@@ -161,26 +176,28 @@ class _Collector:
 
     def pytest_runtest_logreport(self, report: Any) -> None:  # noqa: ANN401
         nodeid = report.nodeid
+        file = _report_file(report)
         if report.when == "call":
             if report.passed:
-                self._set(nodeid, "PASSED")
+                self._set(nodeid, file, "PASSED")
             elif report.skipped:
-                self._set(nodeid, "SKIPPED", str(getattr(report, "longrepr", "")))
+                self._set(nodeid, file, "SKIPPED", str(getattr(report, "longrepr", "")))
             else:
-                self._set(nodeid, "FAILED", _short(report))
+                self._set(nodeid, file, "FAILED", _short(report))
         elif report.when == "setup":
             if report.skipped:
-                self._set(nodeid, "SKIPPED", str(getattr(report, "longrepr", "")))
+                self._set(nodeid, file, "SKIPPED", str(getattr(report, "longrepr", "")))
             elif report.failed:
-                self._set(nodeid, "ERROR", _short(report))
+                self._set(nodeid, file, "ERROR", _short(report))
         elif report.when == "teardown" and report.failed:
-            self._set(nodeid, "ERROR", _short(report))
+            self._set(nodeid, file, "ERROR", _short(report))
 
-    def _set(self, nodeid: str, status: str, detail: str = "") -> None:
+    def _set(self, nodeid: str, file: str, status: str, detail: str = "") -> None:
         rank = {"PASSED": 0, "SKIPPED": 1, "FAILED": 2, "ERROR": 3}
-        prev = self.results.get(nodeid)
+        key = f"{file}|{nodeid}"
+        prev = self.results.get(key)
         if prev is None or rank[status] >= rank[prev.status]:
-            self.results[nodeid] = TestOutcome(nodeid, status, detail)
+            self.results[key] = TestOutcome(nodeid, status, detail, file)
 
 
 def _short(report: Any) -> str:  # noqa: ANN401
@@ -206,18 +223,22 @@ def run_tests(test_paths: Sequence[Path], extra_args: Sequence[str] = ()) -> dic
 def _match_outcomes(
     node_id: str, outcomes: Mapping[str, TestOutcome]
 ) -> list[TestOutcome]:
-    """Map an ast-derived node id onto the pytest node ids it produced.
+    """Map an ast-derived node id onto the pytest outcomes it produced.
 
     pytest reports paths relative to its rootdir and appends ``[params]`` to
-    parametrised cases, so matching is done on the trailing components.
+    parametrised cases, so matching is done on the trailing components. The file is taken
+    from the recorded absolute path rather than from the node id, because the node id's
+    path component is empty whenever pytest cannot express the file relative to its
+    rootdir.
     """
     parts = node_id.split("::")
     file_tail = Path(parts[0]).name
     suffix = "::".join(parts[1:])
     hits: list[TestOutcome] = []
-    for pytest_id, outcome in outcomes.items():
-        p_parts = pytest_id.split("::")
-        if Path(p_parts[0]).name != file_tail:
+    for outcome in outcomes.values():
+        p_parts = outcome.node_id.split("::")
+        reported_file = outcome.file or p_parts[0]
+        if Path(reported_file).name != file_tail:
             continue
         p_suffix = "::".join(p_parts[1:])
         base = p_suffix.split("[", 1)[0]
