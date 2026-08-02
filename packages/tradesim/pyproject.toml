@@ -19,13 +19,16 @@ dependencies = [
 [project.optional-dependencies]
 conformance = ["pytest>=7.4"]
 plot = ["finplot>=1.9"]
+# Parity adapters live under packages/tradesim/migration/ (not in the wheel).
+# Install path: pip install -e packages/tradesim[migration] after PYTHONPATH includes migration/.
+migration = []
 
 [project.scripts]
 tradesim-conformance = "tradesim.conformance.checker:main"
 tradesim-research = "tradesim.research.__main__:main"
 tradesim-venue = "tradesim.venue.__main__:main"
 tradesim-candles = "tradesim.research.candles:main"
-tradesim-update = "tradesim.ensure_source:main"
+tradesim-assert-version = "tradesim.ensure_source:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -78,12 +78,20 @@ def _parse_wip_fleet(root: Path, exchange: str) -> list[CandlePair]:
 
     data = json.loads(path.read_text(encoding="utf-8"))
     ex = (data.get("exchange") or exchange).lower()
-    out = []
-    for bot in data.get("bots") or []:
+    out: list[CandlePair] = []
+    seen: set[tuple[str, str, str]] = set()
+    # Include active + stopped so shared candles stay available for research
+    # even when the live fleet is fully decommissioned.
+    for bot in list(data.get("bots") or []) + list(data.get("stopped") or []):
         sym = normalize_symbol(bot.get("symbol") or "")
         tf = normalize_timeframe(bot.get("timeframe") or "4h")
-        if sym:
-            out.append(CandlePair(ex, sym, tf))
+        if not sym:
+            continue
+        key = (ex, sym, tf)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(CandlePair(ex, sym, tf))
     return out
 
 

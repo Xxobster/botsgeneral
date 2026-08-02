@@ -16,8 +16,10 @@ import json
 import sys
 from pathlib import Path
 
+from tradesim.paths import tradesim_runs_dir
+
 from .defaults import RESEARCH_REPORTS_DIR, RESEARCH_STORE_PATH
-from .store import BacktestStore
+from .store import BacktestStore, aggregate_run_catalog
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,6 +33,21 @@ def main(argv: list[str] | None = None) -> int:
 
     p_list = sub.add_parser("list", help="list recorded backtests")
     p_list.add_argument("--strategy", default=None)
+
+    p_agg = sub.add_parser(
+        "aggregate-catalog",
+        help="scan per-run SQLite files and upsert summaries into the catalog",
+    )
+    p_agg.add_argument(
+        "--runs-dir",
+        default=str(tradesim_runs_dir()),
+        help="root of per-run DBs (default: trading_data_root/backtests/runs)",
+    )
+    p_agg.add_argument(
+        "--catalog",
+        default=RESEARCH_STORE_PATH,
+        help="catalog SQLite path (default: tradesim_runs.sqlite)",
+    )
 
     p_show = sub.add_parser("show", help="print metrics JSON for one run")
     p_show.add_argument("--run-id", required=True)
@@ -83,6 +100,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "aggregate-catalog":
+        n = aggregate_run_catalog(args.runs_dir, args.catalog)
+        print(f"upserted {n} run(s) into {args.catalog}")
+        return 0
+
     store = BacktestStore(args.db)
 
     if args.cmd == "list":

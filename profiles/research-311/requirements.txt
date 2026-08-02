@@ -1,0 +1,13 @@
+# research-311 profile — xgb + LD stack (Python 3.11)
+# Shared packages (tradesim, leakage, market_data, live_candles) must import cleanly here.
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.6.1
+xgboost==2.0.3
+tensorflow==2.19.0
+pybit==5.10.0
+requests>=2.31.0
+PyYAML>=6.0
+websocket-client>=1.6.0
+pytest>=7.4
+finplot>=1.9

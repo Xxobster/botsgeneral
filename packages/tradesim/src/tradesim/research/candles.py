@@ -33,7 +33,7 @@ def ensure_candles(
     Returns the ``download_all.run`` exit code (0 = ok).
     """
     try:
-        from botsgeneral.research_candles.download_all import run
+        from market_data.download_all import run
     except ImportError as exc:
         raise ImportError(
             "ensure_candles needs botsgeneral installed in this environment "

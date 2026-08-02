@@ -26,9 +26,11 @@ RESEARCH_STARTING_EQUITY_USDT = 10_000.0
 RESEARCH_TAKER_RATE = 0.00055
 RESEARCH_ENTRY_SLIPPAGE = 0.0005  # 0.05% default; freeze per project if measured
 
-# Canonical research artifacts (Windows research machine).
-RESEARCH_STORE_PATH = r"D:\projectsdata\backtests\tradesim_runs.sqlite"
-RESEARCH_REPORTS_DIR = r"D:\projectsdata\backtests\reports"
+# Canonical research artifacts (override with TRADING_DATA_ROOT).
+from tradesim.paths import tradesim_reports_dir, tradesim_store_path
+
+RESEARCH_STORE_PATH = str(tradesim_store_path())
+RESEARCH_REPORTS_DIR = str(tradesim_reports_dir())
 
 
 def research_starting_equity(

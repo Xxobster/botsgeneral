@@ -10,7 +10,9 @@ from typing import Sequence
 from ..contracts import InstrumentSpec
 from .bybit import BybitInstrument, fetch_instrument, fetch_instruments
 
-DEFAULT_CACHE = Path(r"D:\projectsdata\candles\bybit_instruments.sqlite")
+from tradesim.paths import bybit_instruments_db
+
+DEFAULT_CACHE = bybit_instruments_db()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS instruments (

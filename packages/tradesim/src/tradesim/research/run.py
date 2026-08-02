@@ -23,6 +23,7 @@ from ..contracts import (
 )
 from ..engine import simulate
 from ..metrics import MetricsReport, compute_metrics, headline_table
+from ..paths import tradesim_runs_dir, tradesim_store_path
 from .defaults import (
     RESEARCH_REPORTS_DIR,
     RESEARCH_STARTING_EQUITY_USDT,
@@ -33,8 +34,9 @@ from .defaults import (
     research_sim,
     research_sizing,
 )
+from .provenance import collect_provenance
 from .report import StrategyDetails, write_report
-from .store import BacktestStore
+from .store import persist_research_run
 
 
 def _default_plot() -> bool:
@@ -47,6 +49,13 @@ def _default_plot() -> bool:
         return bool(sys.stdout.isatty())
     except Exception:
         return False
+
+
+def _is_catalog_store_path(store_path: str | Path) -> bool:
+    try:
+        return Path(store_path).resolve() == Path(tradesim_store_path()).resolve()
+    except OSError:
+        return Path(store_path) == Path(RESEARCH_STORE_PATH)
 
 
 @dataclass(frozen=True)
@@ -62,6 +71,8 @@ class BacktestBundle:
     store_path: str | None = None
     report_dir: str | None = None
     fingerprints: dict[str, str] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    catalog_path: str | None = None
 
     @property
     def wallet_blown(self) -> bool:
@@ -86,6 +97,7 @@ def run_backtest(
     sim: SimConfig | None = None,
     starting_equity: float = RESEARCH_STARTING_EQUITY_USDT,
     store_path: str | Path | None = RESEARCH_STORE_PATH,
+    runs_dir: str | Path | None = None,
     reports_dir: str | Path | None = RESEARCH_REPORTS_DIR,
     report: bool = True,
     strategy_meta: Mapping[str, Any] | StrategyDetails | None = None,
@@ -94,6 +106,11 @@ def run_backtest(
     print_headline: bool = True,
     max_bars: int = 0,
     max_zone_trades: int = 200,
+    random_seed: int | None = None,
+    strategy_git_commit: str | None = None,
+    data_snapshot_id: str | None = None,
+    data_path: str | Path | None = None,
+    provenance: Mapping[str, Any] | None = None,
 ) -> BacktestBundle:
     """Run a strategy backtest with research defaults and full artifact capture.
 
@@ -105,10 +122,15 @@ def run_backtest(
     - leverage 1×
     - limit TP/SL, no exit slip; entry next-open + entry slip; taker fees
     - trading stops if the wallet is blown
-    - persist to ``D:/projectsdata/backtests/tradesim_runs.sqlite``
+    - persist per-run SQLite under ``D:/projectsdata/backtests/runs/{strategy}/{run_id}.sqlite``
+      and upsert a summary into the catalog ``tradesim_runs.sqlite``
     - write a report folder under ``D:/projectsdata/backtests/reports/{run_id}/``
     - open Finplot (full period) + metrics on interactive terminals
       (``plot=False`` / ``TRADESIM_NO_PLOT=1`` to disable; no re-sim on reopen)
+
+    Pass an explicit ``store_path`` to a non-catalog ``.sqlite`` file for the legacy
+    single-file store (tests / ad-hoc). Pass ``runs_dir=`` with any catalog path to
+    force dual-write.
 
     Pass ``strategy_meta`` with name / batch / model_path / tp_pct / sl_pct / …
     so the report and metrics window show pack identity.
@@ -155,28 +177,52 @@ def run_backtest(
                 f"at ts_ms={metrics.ruined_at_ts_ms} ***\n"
             )
 
+    prov: dict[str, Any]
+    if provenance is not None:
+        prov = dict(provenance)
+    else:
+        prov = collect_provenance(
+            config_hash=result.config_digest or None,
+            strategy_git_commit=strategy_git_commit,
+            data_snapshot_id=data_snapshot_id,
+            data_path=data_path,
+            random_seed=random_seed,
+        )
+
     path_str = None
+    catalog_str = None
     fingerprints: dict[str, str] = {}
     if store_path is not None:
-        store = BacktestStore(store_path)
-        fingerprints = store.save(
+        dual_runs_dir: Path | None
+        if runs_dir is not None:
+            dual_runs_dir = Path(runs_dir)
+        elif _is_catalog_store_path(store_path):
+            dual_runs_dir = tradesim_runs_dir()
+        else:
+            dual_runs_dir = None
+
+        fingerprints, primary, catalog_str = persist_research_run(
             run_id=rid,
             strategy_id=strategy_id,
             strategy_version=strategy_version,
             result=result,
             metrics=metrics,
+            store_path=store_path,
+            runs_dir=dual_runs_dir,
             symbol=instrument.symbol,
             decision_timeframe=sim.decision_timeframe,
             notes=notes,
             bars=bars,
             embed_bars=True,
             strategy_meta=strategy_meta,
+            provenance=prov,
         )
-        path_str = str(Path(store_path).resolve())
+        path_str = primary
         if print_headline and fingerprints.get("run_fingerprint_short"):
+            extra = f"  catalog={catalog_str}" if catalog_str else ""
             print(
                 f"saved run_id={rid}  fingerprint={fingerprints['run_fingerprint_short']}  "
-                f"db={path_str}"
+                f"db={path_str}{extra}"
             )
 
     report_path_str = None
@@ -233,4 +279,6 @@ def run_backtest(
         store_path=path_str,
         report_dir=report_path_str,
         fingerprints=fingerprints,
+        provenance=prov,
+        catalog_path=catalog_str,
     )

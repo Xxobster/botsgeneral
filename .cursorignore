@@ -1,0 +1,17 @@
+﻿**/.venv/**
+**/.venv-*/**
+**/__pycache__/**
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/database/**
+**/data/local/**
+**/artifacts/**
+**/artifacts/features/**
+**/tune_results/**
+**/reports/**
+**/logs/**
+**/whcache/**
+**/*.parquet
+**/.pytest_cache/**
+**/node_modules/

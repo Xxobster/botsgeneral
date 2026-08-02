@@ -11,8 +11,8 @@ These apply to **all** bot projects. botsgeneral is infrastructure (candles/sitr
 
 - Prefer **WebSocket** for market data and trading feeds (fastest path). REST only for bootstrap/history/fallback.
 - **SQLite** over CSV for candles, trade logs, features.
-- Binance credentials: `C:\projects\BASE CURSOR\api key binance.txt` (also mirror under `C:\projects\xgb` where used). Public klines OK; still load keys when auth is needed.
-- Bybit trading keys: `C:\projects\BASE CURSOR\api keys bybit.txt` — never commit secrets.
+- Secrets live in `%USERPROFILE%\.trading\secrets.env` (never commit). Legacy plaintext under `%USERPROFILE%\.trading\legacy\` is fallback only. Public klines OK; still load keys when auth is needed.
+- Do not store API keys under `C:\projects\BASE CURSOR` or any git tree.
 - Candle acquisition for the fleet: **botsgeneral** one collector per VPS → `/var/lib/botsgeneral/shared_candles.db`. Trading bots **read** shared DB after migration; **xgb** keeps its own Binance pull by explicit choice.
 - Reader contract: `docs/project_memory/SHARED_CANDLES_READER.md` + `botsgeneral.reader.load_ohlcv`. Upsert is incremental (insert new; overwrite same `ts_ms` only when OHLCV changes).
 - VPS **185.203.119.52** (LD): collector serves Binance USD-M **1h** for BTC/ETH/SOL/BNB once for all Xxobster9/10/11 groups — see `AGENT_PROMPTS.md` → ld.

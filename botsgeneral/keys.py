@@ -105,10 +105,13 @@ def resolve_accounts(keys_path: str | None = None) -> dict[str, dict[str, str]]:
         candidates.append(env_keys)
     candidates.extend(
         [
+            # Preferred local secrets file (env-style, outside git trees)
+            str(Path.home() / ".trading" / "secrets.env"),
             "/etc/botsgeneral/keys.env",
             "/etc/botsgeneral/bybit_keys.txt",
             str(Path.home() / ".botsgeneral" / "keys.env"),
-            str(Path(r"c:\projects\BASE CURSOR\api keys bybit.txt")),
+            # Legacy plaintext copy kept outside project trees
+            str(Path.home() / ".trading" / "legacy" / "api keys bybit.txt"),
             # xgb accounts (Xxobster2 / Xxobster13 live here)
             "/home/xgb/config/api_keys.json",
             "/home/xgb_match/config/api_keys.json",
@@ -165,8 +168,9 @@ def resolve_binance_keys(keys_path: str | None = None) -> dict[str, str]:
         candidates.append(env)
     candidates.extend(
         [
+            str(Path.home() / ".trading" / "secrets.env"),
             "/etc/botsgeneral/binance_keys.txt",
-            str(Path(r"c:\projects\BASE CURSOR\api key binance.txt")),
+            str(Path.home() / ".trading" / "legacy" / "api key binance.txt"),
             str(Path(r"c:\projects\xgb\config\api_keys.json")),
         ]
     )

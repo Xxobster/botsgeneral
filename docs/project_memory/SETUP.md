@@ -13,11 +13,12 @@ Discover against local project trees:
 ```bash
 python -m botsgeneral --registry config/bots_registry.local.yaml --vps local discover
 python -m botsgeneral --registry config/bots_registry.local.yaml --vps local --db data/shared_candles.db sitrep
-python -m botsgeneral --keys "C:\projects\BASE CURSOR\api keys bybit.txt" pnl
+python -m botsgeneral pnl
+# Keys resolve from %USERPROFILE%\.trading\secrets.env (see RULES.md)
 ```
 
-Binance keys (history / authenticated if needed): `C:\projects\BASE CURSOR\api key binance.txt`  
-Bybit keys: `C:\projects\BASE CURSOR\api keys bybit.txt`
+Binance / Bybit keys: `%USERPROFILE%\.trading\secrets.env` (env-style).  
+Legacy plaintext copies (fallback only): `%USERPROFILE%\.trading\legacy\`
 
 ## VPS install
 

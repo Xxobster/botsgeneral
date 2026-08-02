@@ -13,13 +13,16 @@ dependencies = [
   "PyYAML>=6.0",
   "websocket-client>=1.6.0",
   "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "live_candles",
+  "market_data",
 ]
 
 [project.optional-dependencies]
 research = [
-  "pandas>=2.0.0",
   "yfinance>=0.2.40",
   "dukascopy-python>=4.0.0",
+  "market_data[research]",
 ]
 
 [project.scripts]
@@ -28,3 +31,17 @@ botsgeneral = "botsgeneral.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["botsgeneral*"]
+
+[tool.uv.workspace]
+members = [
+  "packages/tradesim",
+  "packages/leakage",
+  "packages/market_data",
+  "packages/live_candles",
+]
+
+[tool.uv.sources]
+tradesim = { workspace = true }
+leakage = { workspace = true }
+market_data = { workspace = true }
+live_candles = { workspace = true }

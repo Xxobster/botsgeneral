@@ -1,209 +1,118 @@
-"""Keep every strategy environment on the latest botsgeneral tradesim.
+"""Fail-closed engine version assertion.
 
-Typical program bootstrap (before other tradesim imports)::
-
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(r"C:\\projects\\botsgeneral\\packages\\tradesim\\src")))
-    from tradesim.ensure_source import ensure_latest_tradesim
-    ensure_latest_tradesim(update=True)  # pip -e refresh + path pin
-
-CLI::
-
-    tradesim-update
-    python -m tradesim.ensure_source --update
+Runtime ``pip install -e`` was removed: auto-reinstalling the engine mid-run made
+old results unreproducible. Strategies must install ``tradesim`` into their venv
+(editable or pinned) and call :func:`assert_engine_version` at process start.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
-# Canonical editable package root and its ``src`` layout (Windows research machine).
-DEFAULT_BOTSGENERAL_TRADESIM_PKG = Path(r"C:\projects\botsgeneral\packages\tradesim")
-DEFAULT_BOTSGENERAL_TRADESIM_SRC = DEFAULT_BOTSGENERAL_TRADESIM_PKG / "src"
 
-
-def prefer_botsgeneral_tradesim(
-    src: str | Path | None = None,
-    *,
-    reload: bool = False,
-) -> Path:
-    """Put botsgeneral ``tradesim`` first on ``sys.path`` and verify the import.
-
-    Returns the resolved ``tradesim`` package directory that will be (or was) imported.
-    Raises ``RuntimeError`` if the active module is not under botsgeneral.
-    """
-    root = Path(src) if src is not None else DEFAULT_BOTSGENERAL_TRADESIM_SRC
-    root = root.resolve()
-    if not (root / "tradesim").is_dir():
-        raise RuntimeError(f"tradesim source not found at {root}")
-
-    # Drop other tradesim path entries so site-packages cannot win.
-    cleaned: list[str] = []
-    for p in sys.path:
-        norm = p.replace("\\", "/").lower()
-        if "tradesim" in norm and "botsgeneral" not in norm:
-            continue
-        cleaned.append(p)
-    sys.path[:] = cleaned
-    s = str(root)
-    if s in sys.path:
-        sys.path.remove(s)
-    sys.path.insert(0, s)
-
-    if reload:
-        _reload_tradesim_modules()
-
-    import tradesim  # noqa: WPS451 — intentional after path fix
-
-    path = Path(tradesim.__file__).resolve()
-    if "botsgeneral" not in str(path).replace("\\", "/"):
-        raise RuntimeError(
-            f"refusing non-botsgeneral tradesim at {path}; "
-            f"expected under {root}"
-        )
-    return path.parent
-
-
-def assert_botsgeneral_tradesim() -> Path:
-    """Assert the already-imported ``tradesim`` is the botsgeneral copy."""
+def tradesim_package_dir() -> Path:
     import tradesim
 
-    path = Path(tradesim.__file__).resolve()
-    if "botsgeneral" not in str(path).replace("\\", "/"):
-        raise RuntimeError(
-            f"stale tradesim at {path}; call ensure_latest_tradesim(update=True) "
-            "or: pip install -e C:\\projects\\botsgeneral\\packages\\tradesim"
-        )
-    return path.parent
+    return Path(tradesim.__file__).resolve().parent
 
 
-def update_tradesim(
+def assert_engine_version(
     *,
-    extras: str = "conformance,plot",
-    pkg: str | Path | None = None,
-    quiet: bool = False,
+    require_under: str | Path | None = None,
+    min_version: str | None = None,
 ) -> dict[str, Any]:
-    """Re-install the editable botsgeneral tradesim into *this* Python environment.
-
-    Equivalent to::
-
-        pip install -e C:\\projects\\botsgeneral\\packages\\tradesim[conformance,plot]
-
-    Returns a small status dict (``ok``, ``returncode``, ``path``, ``version``).
-    """
-    package = Path(pkg) if pkg is not None else DEFAULT_BOTSGENERAL_TRADESIM_PKG
-    package = package.resolve()
-    if not (package / "pyproject.toml").is_file():
-        raise RuntimeError(f"tradesim package not found at {package}")
-
-    target = str(package)
-    if extras:
-        target = f"{package}[{extras}]"
-    cmd = [sys.executable, "-m", "pip", "install", "-e", target]
-    if quiet:
-        cmd.append("-q")
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            "tradesim update failed:\n"
-            f"cmd={' '.join(cmd)}\n"
-            f"stdout={proc.stdout[-2000:]}\n"
-            f"stderr={proc.stderr[-2000:]}"
-        )
-
-    path = prefer_botsgeneral_tradesim(package / "src", reload=True)
-    import tradesim
-
-    return {
-        "ok": True,
-        "returncode": proc.returncode,
-        "path": str(path),
-        "package": str(package),
-        "version": getattr(tradesim, "__version__", "?"),
-        "file": str(Path(tradesim.__file__).resolve()),
-    }
-
-
-def ensure_latest_tradesim(
-    *,
-    update: bool = True,
-    extras: str = "conformance,plot",
-    quiet: bool = True,
-) -> dict[str, Any]:
-    """Pin to botsgeneral tradesim; optionally ``pip install -e`` to refresh.
+    """Assert the imported ``tradesim`` is the expected engine.
 
     Parameters
     ----------
-    update:
-        If True (default), run editable reinstall so the current venv picks up
-        any edits under ``C:\\projects\\botsgeneral\\packages\\tradesim``.
-        If False, only reorder ``sys.path`` / assert location.
+    require_under:
+        If set, ``tradesim.__file__`` must live under this directory
+        (typically ``C:\\projects\\botsgeneral\\packages\\tradesim``).
+    min_version:
+        If set, compare against ``tradesim.__version__`` (string equality or
+        packaging-style parse when available).
     """
-    info: dict[str, Any] = {"updated": False}
-    if update:
-        info.update(update_tradesim(extras=extras, quiet=quiet))
-        info["updated"] = True
-    else:
-        path = prefer_botsgeneral_tradesim(reload=False)
-        import tradesim
+    import tradesim
 
-        info.update(
-            {
-                "ok": True,
-                "path": str(path),
-                "version": getattr(tradesim, "__version__", "?"),
-                "file": str(Path(tradesim.__file__).resolve()),
-            }
-        )
-    assert_botsgeneral_tradesim()
+    path = Path(tradesim.__file__).resolve()
+    version = getattr(tradesim, "__version__", "?")
+    info: dict[str, Any] = {
+        "ok": True,
+        "version": version,
+        "file": str(path),
+        "package_dir": str(path.parent),
+    }
+
+    if require_under is not None:
+        root = Path(require_under).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"refusing tradesim at {path}; expected under {root}. "
+                "Install with: pip install -e "
+                r"C:\projects\botsgeneral\packages\tradesim"
+            ) from exc
+
+    if min_version is not None and str(version) != str(min_version):
+        # Prefer packaging comparison when available.
+        try:
+            from packaging.version import Version
+
+            if Version(str(version)) < Version(str(min_version)):
+                raise RuntimeError(
+                    f"tradesim {version} < required {min_version} ({path})"
+                )
+        except ImportError:
+            if str(version) != str(min_version):
+                raise RuntimeError(
+                    f"tradesim {version} != required {min_version} ({path})"
+                ) from None
+
     return info
 
 
-def _reload_tradesim_modules() -> None:
-    """Drop cached tradesim modules so the next import sees disk edits."""
-    doomed = [name for name in list(sys.modules) if name == "tradesim" or name.startswith("tradesim.")]
-    for name in doomed:
-        del sys.modules[name]
+# Back-compat aliases used by older strategy bootstraps.
+def prefer_botsgeneral_tradesim(*_a, **_k) -> Path:
+    """Deprecated: use editable install + assert_engine_version()."""
+    info = assert_engine_version(
+        require_under=Path(r"C:\projects\botsgeneral\packages\tradesim")
+    )
+    return Path(info["package_dir"])
+
+
+def assert_botsgeneral_tradesim() -> Path:
+    return prefer_botsgeneral_tradesim()
+
+
+def ensure_latest_tradesim(*, update: bool = False, **_k) -> dict[str, Any]:
+    """Deprecated: ``update=True`` no longer runs pip. Asserts only."""
+    if update:
+        # Explicit no-op with a clear message for callers still passing update=True.
+        pass
+    return assert_engine_version(
+        require_under=Path(r"C:\projects\botsgeneral\packages\tradesim")
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="tradesim-update",
-        description="Install/refresh editable botsgeneral tradesim in this environment",
+        prog="tradesim-assert-version",
+        description="Fail closed if the imported tradesim is not the botsgeneral engine",
     )
     parser.add_argument(
-        "--update",
-        action="store_true",
-        default=True,
-        help="pip install -e the botsgeneral package (default)",
+        "--require-under",
+        default=str(Path(r"C:\projects\botsgeneral\packages\tradesim")),
+        help="directory that must contain tradesim.__file__",
     )
-    parser.add_argument(
-        "--no-update",
-        action="store_true",
-        help="only pin sys.path / assert location (no pip)",
-    )
-    parser.add_argument(
-        "--extras",
-        default="conformance,plot",
-        help="optional extras for pip -e (default: conformance,plot)",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--min-version", default=None)
     args = parser.parse_args(argv)
-    do_update = bool(args.update) and not bool(args.no_update)
-    info = ensure_latest_tradesim(
-        update=do_update, extras=args.extras, quiet=not args.verbose
+    info = assert_engine_version(
+        require_under=args.require_under, min_version=args.min_version
     )
-    print(
-        f"tradesim {info.get('version')}  "
-        f"updated={info.get('updated')}  "
-        f"from {info.get('file')}"
-    )
+    print(f"tradesim {info['version']}  from {info['file']}")
     return 0
 
 

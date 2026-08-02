@@ -62,9 +62,9 @@ from .contracts import (
 from .conformance.stamp import ConformanceStamp, NotQuotableError, assert_quotable
 from .ensure_source import (
     assert_botsgeneral_tradesim,
+    assert_engine_version,
     ensure_latest_tradesim,
     prefer_botsgeneral_tradesim,
-    update_tradesim,
 )
 from .engine import (
     DataValidationError,
@@ -156,6 +156,7 @@ __all__ = [
     "Trade",
     "TrailConfig",
     "assert_botsgeneral_tradesim",
+    "assert_engine_version",
     "assert_quotable",
     "base_reason",
     "compute_metrics",
@@ -183,7 +184,6 @@ __all__ = [
     "simulate",
     "simulate_portfolio",
     "update_protective_levels",
-    "update_tradesim",
     "validate_bars",
     "__version__",
 ]

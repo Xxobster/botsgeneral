@@ -1,0 +1,14 @@
+# general-312 profile — strategy research outside the tensorflow stack (Python 3.12)
+# Satisfies tradeshistory (numpy>=2) and migrates karmaa_mp/news/poly off 3.14.
+numpy>=2.0.0
+pandas>=2.2.0
+scikit-learn>=1.3.0
+xgboost>=1.7.0
+pybit>=5.8.0
+requests>=2.31.0
+PyYAML>=6.0
+websocket-client>=1.6.0
+pytest>=7.4
+finplot>=1.9
+yfinance>=0.2.40
+dukascopy-python>=4.0.0

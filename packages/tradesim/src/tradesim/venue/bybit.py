@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -23,9 +25,29 @@ from typing import Any, Mapping, Sequence
 
 from ..contracts import InstrumentSpec
 
-DEFAULT_KEYS_PATH = Path(r"C:\projects\BASE CURSOR\api keys bybit.txt")
+# Preferred: %USERPROFILE%\.trading\secrets.env (env-style). Legacy plaintext
+# under ~/.trading/legacy is a fallback only.
+DEFAULT_SECRETS_ENV = Path.home() / ".trading" / "secrets.env"
+DEFAULT_KEYS_PATH = Path.home() / ".trading" / "legacy" / "api keys bybit.txt"
 DEFAULT_ACCOUNT = "Xxobster_local"
 BYBIT_REST = "https://api.bybit.com"
+
+
+def _load_env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.is_file():
+        return out
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def _account_token(account: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]", "_", account.strip())
 
 
 @dataclass(frozen=True)
@@ -57,20 +79,40 @@ class BybitInstrument:
 
 
 def load_xxobster_local(
-    keys_path: str | Path = DEFAULT_KEYS_PATH,
+    keys_path: str | Path | None = None,
     account: str = DEFAULT_ACCOUNT,
 ) -> tuple[str, str]:
-    """Return (api_key, api_secret) for the named account. Never log the secret."""
+    """Return (api_key, api_secret) for the named account. Never log the secret.
+
+    Resolution order:
+    1. Process environment ``{ACCOUNT}_API_KEY`` / ``{ACCOUNT}_API_SECRET``
+    2. ``%USERPROFILE%\\.trading\\secrets.env`` (or ``TRADING_SECRETS_ENV``)
+    3. Plaintext keys file (``keys_path``, defaulting to legacy path)
+    """
+    token = _account_token(account)
+    env_key = os.environ.get(f"{token}_API_KEY")
+    env_secret = os.environ.get(f"{token}_API_SECRET")
+    if env_key and env_secret:
+        return env_key, env_secret
+
+    secrets_path = Path(
+        os.environ.get("TRADING_SECRETS_ENV") or DEFAULT_SECRETS_ENV
+    )
+    env_map = _load_env_file(secrets_path)
+    if env_map.get(f"{token}_API_KEY") and env_map.get(f"{token}_API_SECRET"):
+        return env_map[f"{token}_API_KEY"], env_map[f"{token}_API_SECRET"]
+
+    path = Path(keys_path) if keys_path is not None else DEFAULT_KEYS_PATH
     try:
         from botsgeneral.keys import parse_bybit_keys_file
     except ImportError:
         parse_bybit_keys_file = _parse_bybit_keys_file_fallback
 
-    accounts = parse_bybit_keys_file(Path(keys_path))
+    accounts = parse_bybit_keys_file(path)
     if account not in accounts:
         raise KeyError(
-            f"account {account!r} not found in {keys_path}; "
-            f"have {sorted(accounts)}"
+            f"account {account!r} not found in env/secrets ({secrets_path}) "
+            f"or keys file {path}; have {sorted(accounts)}"
         )
     creds = accounts[account]
     return creds["api_key"], creds["api_secret"]

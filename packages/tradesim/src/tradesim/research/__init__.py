@@ -18,9 +18,10 @@ from .defaults import (
 )
 from .fingerprint import bars_fingerprint, run_fingerprint, short_id, trades_fingerprint
 from .plot import PlotView, plot_backtest
+from .provenance import collect_provenance
 from .report import StrategyDetails, open_report, write_report
 from .run import BacktestBundle, run_backtest
-from .store import BacktestStore, SavedRun
+from .store import BacktestStore, SavedRun, aggregate_run_catalog, persist_research_run
 
 __all__ = [
     "RESEARCH_ENTRY_SLIPPAGE",
@@ -33,9 +34,12 @@ __all__ = [
     "PlotView",
     "SavedRun",
     "StrategyDetails",
+    "aggregate_run_catalog",
     "bars_fingerprint",
+    "collect_provenance",
     "ensure_candles",
     "open_report",
+    "persist_research_run",
     "plot_backtest",
     "research_costs",
     "research_instrument",
