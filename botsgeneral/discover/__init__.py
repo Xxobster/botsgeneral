@@ -27,16 +27,68 @@ def load_registry(path: str | Path | None = None) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def _local_ipv4s() -> set[str]:
+    """Best-effort set of this host's IPv4 addresses (Linux + fallback)."""
+    ips: set[str] = set()
+    try:
+        host = socket.gethostname()
+        ips.add(socket.gethostbyname(host))
+    except OSError:
+        pass
+    # hostname -I (Linux)
+    try:
+        import subprocess
+
+        r = subprocess.run(
+            ["hostname", "-I"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        for tok in (r.stdout or "").split():
+            if tok.count(".") == 3:
+                ips.add(tok.strip())
+    except Exception:
+        pass
+    # parse `ip -4 -o addr`
+    try:
+        import subprocess
+
+        r = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        for ln in (r.stdout or "").splitlines():
+            parts = ln.split()
+            if "inet" in parts:
+                i = parts.index("inet")
+                if i + 1 < len(parts):
+                    ips.add(parts[i + 1].split("/")[0])
+    except Exception:
+        pass
+    ips.discard("127.0.0.1")
+    return ips
+
+
 def detect_vps_id(registry: dict[str, Any]) -> str | None:
     env = os.environ.get("BOTSGENERAL_VPS")
     if env:
         return env.strip()
+    # Persistent pin written at install time
+    for pin in (
+        Path("/etc/botsgeneral/vps_id"),
+        Path.home() / ".botsgeneral" / "vps_id",
+    ):
+        if pin.exists():
+            val = pin.read_text(encoding="utf-8", errors="ignore").strip()
+            if val:
+                return val
     host = socket.gethostname()
-    try:
-        ips = {socket.gethostbyname(host)}
-    except OSError:
-        ips = set()
-    # also try common interfaces via hostname -I style not portable; check registry keys in /etc
+    ips = _local_ipv4s()
     for vps_id in registry.get("vps", {}):
         if vps_id in ips or vps_id in host:
             return vps_id
@@ -51,10 +103,12 @@ def detect_vps_id(registry: dict[str, Any]) -> str | None:
             if p.exists():
                 hits += 1
         if hits:
-            matches.append((hits, vps_id))
+            # Prefer registry keys that look like this host's IP even on path-tie
+            ip_bonus = 1 if vps_id in ips else 0
+            matches.append((hits, ip_bonus, vps_id))
     if matches:
         matches.sort(reverse=True)
-        return matches[0][1]
+        return matches[0][2]
     return None
 
 
@@ -175,13 +229,18 @@ def bot_runtime_status(registry: dict[str, Any], vps_id: str | None = None) -> l
     out = []
     for name in bot_names:
         bcfg = (registry.get("bots") or {}).get(name) or {}
+        acc = bcfg.get("account")
+        if isinstance(acc, list):
+            account_disp: Any = [str(a) for a in acc]
+        else:
+            account_disp = acc
         out.append(
             {
                 "bot": name,
                 "path": bcfg.get("path"),
                 "path_exists": Path(bcfg.get("path") or "").exists(),
                 "serve_candles": bool(bcfg.get("serve_candles", True)),
-                "account": bcfg.get("account"),
+                "account": account_disp,
                 "running": _is_running(bcfg, screens, systemd, proc_blob),
             }
         )

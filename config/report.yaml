@@ -19,5 +19,9 @@ since_by_bot:
     BTCUSDT: "2026-07-25"
     ETHUSDT: "2026-07-25"
 
+# Per-account PnL start (overrides since_date for that account only)
+since_by_account:
+  Xxobster6: "2026-08-02"   # divergences ETH 1h confluence go-live
+
 # Optional filters for default `bots` summary (empty = all accounts on this VPS)
 # accounts: []

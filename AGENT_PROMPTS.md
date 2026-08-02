@@ -122,3 +122,93 @@ Goals:
 5. Stale-data guard.
 6. This project has no git remote — init/create GitHub repo if appropriate OR document rsync deploy; deploy to /opt/wip on 94.156.189.76; restart wip-live.service/screens; verify no REST get_klines spam each 4h.
 ```
+
+---
+
+## ld (VPS 185.203.119.52)
+
+```
+Context: Three LD account groups (Xxobster9 / Xxobster10 / Xxobster11) run the same four pairs (BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT) on 1h. Old live code fetched Binance **spot** klines (`api.binance.com`). Research packs were trained from `market_ohlcv` with `source='binance'` = Binance **USD-M futures Last** (`fapi`). botsgeneral shared collector on this VPS writes that same futures series. Stop spot REST; read shared DB so live features match train/test candles.
+
+Also respect standing stack rules in C:\projects\botsgeneral\docs\project_memory\RULES.md and the reader contract in C:\projects\botsgeneral\docs\project_memory\SHARED_CANDLES_READER.md. Update this project’s docs/project_memory/.
+
+Shared DB (VPS 185.203.119.52): /var/lib/botsgeneral/shared_candles.db
+Env: SHARED_CANDLES_DB=/var/lib/botsgeneral/shared_candles.db
+
+Live need (all groups share these rows — same product as research warehouse):
+  exchange = 'binance'   # USD-M futures Last (fapi) — matches market_ohlcv source=binance
+  timeframe = '1h'
+  symbols = BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT
+  Do NOT use api.binance.com spot for features.
+
+Schema PK (exchange, symbol, timeframe, ts_ms). Columns: open,high,low,close,volume + quote_volume/trades/taker_buy_* + updated_at_ms.
+Writer upserts: inserts new bars; overwrites same ts_ms only when OHLCV/aux values change (exchange corrections). Never wipe history.
+
+Helper (on VPS, PYTHONPATH=/opt/botsgeneral):
+  from botsgeneral.reader import load_ohlcv, is_fresh
+  df = load_ohlcv("binance", symbol, "1h", limit=6000)
+
+Goals:
+1. In ld/live/runner.py and ld/live/crosspair_runner.py: stop calling fetch_recent / Binance REST for strategy history. Keep sleep-until-1h-close scheduling.
+2. Load completed 1h bars from SHARED_CANDLES_DB (prefer botsgeneral.reader.load_ohlcv). Map to the same DataFrame shape compute_live_features expects (DatetimeIndex UTC + ts_ms/OHLCV). Drop incomplete bar using open+1h <= now (same as drop_incomplete_bar).
+3. Optional: keep writing a local cache sqlite under database/assets_live ONLY as a read-through cache of the shared DB — do not be the source of truth and do not call Binance for it.
+4. Stale guard: if not is_fresh("binance", symbol, "1h", max_lag_bars=2), log and skip new entries (orders stay closed).
+5. Bybit trading (xxobster9/10/11 via config/api_keys.json) unchanged.
+6. HTF features continue to resample from the 1h series (no separate HTF fetch required).
+7. Deploy /home/ld on 185.203.119.52; restart ld-live@*.service and ld-live-crosspair.service; confirm logs show no api.binance.com/api/v3/klines traffic and features still compute after each 1h close.
+8. Confirm collector is up: `bots sitrep` shows binance BTC/ETH/SOL/BNB 1h fresh; `systemctl is-active botsgeneral-collector@185.203.119.52`.
+```
+
+---
+
+## tradesim (any strategy repo — auto-update + Finplot)
+
+Full prompt: `docs/project_memory/TRADESIM_PROGRAM_PROMPT.md`
+
+```
+Context: botsgeneral owns the shared backtest engine `tradesim` at
+C:\projects\botsgeneral\packages\tradesim. Strategy programs must NOT vendor a
+simulator and must NOT rely on a stale site-packages wheel.
+
+Obey C:\projects\botsgeneral\docs\project_memory\RULES.md and
+TRADESIM_BACKTEST_ENGINE_GUIDE.md. Update this project's docs/project_memory/.
+
+Goals:
+1. At the top of every backtest / plot / hunt entry script (before other tradesim
+   imports), bootstrap the latest engine:
+
+   import sys
+   from pathlib import Path
+   sys.path.insert(0, str(Path(r"C:\projects\botsgeneral\packages\tradesim\src")))
+   from tradesim.ensure_source import ensure_latest_tradesim
+   print(ensure_latest_tradesim(update=True))  # pip install -e + path pin
+
+   Or CLI once per environment:
+   tradesim-update
+   python -m tradesim.ensure_source --update
+
+2. Use tradesim for simulation, metrics, Finplot, candle ensure, venue sizing:
+   run_backtest / simulate / compute_metrics / plot_backtest / ensure_candles.
+   Do not keep a private Finplot helper.
+
+3. Finplot defaults (shared plotter):
+   - equity pane: realized step curve
+   - price pane: short horizontal levels (±3 bars) with a cross at entry, SL,
+     TP1/TP2/TP3; labels LONG|SHORT, SL, TP1…; green=winning trade, red=losing
+   - no filled green/red boxes unless trade_style="zones"
+   - no price-pane trade legend
+
+4. Research wallet default is **10_000 USDT** (`RESEARCH_STARTING_EQUITY_USDT`) so
+   1× + venue min size never fails margin on BTC/ETH. Headline money % is
+   **return on invested notional**, not wallet %. Override only with
+   `research_starting_equity(price=..., qty=..., leverage=1)` if you need a floor.
+
+5. Before quoting numbers: tradesim conformance GREEN in the same environment.
+   Save runs via BacktestStore / run_backtest store; reopen with
+   tradesim-research open --run-id …
+
+6. Do not deploy/live-change without explicit user authorization.
+
+Deliverable: scripts updated, a one-line print of tradesim version+path on start,
+and project memory note that this repo auto-updates tradesim via ensure_latest_tradesim.
+```

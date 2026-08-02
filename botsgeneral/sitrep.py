@@ -105,24 +105,30 @@ def print_sitrep(report: dict) -> None:
     for b in report.get("bots") or []:
         flag = "UP" if b.get("running") else "DOWN"
         serve = "serve" if b.get("serve_candles") else "no-candles"
-        print(f"  [{flag}] {b['bot']:12} path_ok={b.get('path_exists')} {serve} account={b.get('account')}")
+        acc = b.get("account")
+        if isinstance(acc, list):
+            acc = ",".join(str(a) for a in acc)
+        print(f"  [{flag}] {b['bot']:12} path_ok={b.get('path_exists')} {serve} account={acc}")
     print("\nDiscovered pairs:")
     for p in report.get("discovered_pairs") or []:
         print(f"  {p['exchange']:7} {p['symbol']:10} {p['timeframe']:4} <- {p['bot']}")
     print("\nCandle freshness (active pairs only):")
     active = {(p["exchange"], p["symbol"], p["timeframe"]) for p in (report.get("discovered_pairs") or [])}
     shown = 0
-    for f in report.get("candle_freshness") or []:
-        key = (f.get("exchange"), f.get("symbol"), f.get("timeframe"))
-        if active and key not in active:
-            continue
-        shown += 1
-        stale = " STALE" if f.get("stale") else ""
-        print(
-            f"  {f['exchange']:7} {f['symbol']:10} {f['timeframe']:4} "
-            f"bars={f['bars']:<5} lag={f.get('lag_sec')}s{stale}"
-        )
-    if not shown:
-        print("  (none)")
+    if not active:
+        print("  (none — no bot on this VPS requests shared candles)")
+    else:
+        for f in report.get("candle_freshness") or []:
+            key = (f.get("exchange"), f.get("symbol"), f.get("timeframe"))
+            if key not in active:
+                continue
+            shown += 1
+            stale = " STALE" if f.get("stale") else ""
+            print(
+                f"  {f['exchange']:7} {f['symbol']:10} {f['timeframe']:4} "
+                f"bars={f['bars']:<5} lag={f.get('lag_sec')}s{stale}"
+            )
+        if not shown:
+            print("  (none)")
     for w in report.get("warnings") or []:
         print(f"WARN: {w}")

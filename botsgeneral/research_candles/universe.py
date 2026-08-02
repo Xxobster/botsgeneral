@@ -46,7 +46,7 @@ DUKASCOPY: tuple[DukascopyInstrument, ...] = (
     DukascopyInstrument("EURCHF", "EUR/CHF", datetime(2003, 5, 5, tzinfo=timezone.utc)),
 )
 
-# Yahoo daily (and limited 1h) for official/index cross-checks
+# Yahoo daily (and limited 1h) for official/index cross-checks + risk macros
 YAHOO: tuple[YahooInstrument, ...] = (
     YahooInstrument("HSI", "^HSI", "official Hang Seng Index daily"),
     YahooInstrument("DXY_ICE", "DX-Y.NYB", "ICE USD index futures continuous"),
@@ -65,6 +65,32 @@ YAHOO: tuple[YahooInstrument, ...] = (
     YahooInstrument("EURGBP", "EURGBP=X"),
     YahooInstrument("EURJPY", "EURJPY=X"),
     YahooInstrument("EURCHF", "EURCHF=X"),
+    # Cross-asset / LLM macros
+    YahooInstrument("VIX", "^VIX", "CBOE volatility index"),
+    YahooInstrument("SPX", "^GSPC", "S&P 500"),
+    YahooInstrument("NDX", "^IXIC", "Nasdaq Composite"),
+    YahooInstrument("DJI", "^DJI", "Dow Jones Industrial Average"),
+    # Yield cross-checks (canonical daily yields live under FRED US02Y/US10Y/…)
+    YahooInstrument("TNX", "^TNX", "CBOE 10Y Treasury yield (Yahoo)"),
+    YahooInstrument("FVX", "^FVX", "CBOE 5Y Treasury yield (Yahoo)"),
+    YahooInstrument("TYX", "^TYX", "CBOE 30Y Treasury yield (Yahoo)"),
+    YahooInstrument("IRX", "^IRX", "CBOE 13-week T-bill yield (Yahoo)"),
+)
+
+
+@dataclass(frozen=True)
+class FredInstrument:
+    symbol: str
+    series_id: str
+    note: str = ""
+
+
+# Official daily Treasury constant-maturity yields (percent)
+FRED: tuple[FredInstrument, ...] = (
+    FredInstrument("US02Y", "DGS2", "2-year Treasury constant maturity"),
+    FredInstrument("US10Y", "DGS10", "10-year Treasury constant maturity"),
+    FredInstrument("US03M", "DGS3MO", "3-month Treasury bill"),
+    FredInstrument("T10Y2Y", "T10Y2Y", "10y–2y yield spread (recession signal)"),
 )
 
 # Union of symbols used across C:\projects trading bots

@@ -210,6 +210,8 @@ class _Position:
     exit_notional: float = 0.0
     funding_charged_this_bar: float = 0.0
     tag: str = ""
+    # Frozen copy of the take-profit ladder at open (labels survive as legs fill).
+    planned_tp: tuple[tuple[str, float, float], ...] = ()
 
     @property
     def entry_notional(self) -> float:
@@ -342,6 +344,7 @@ class _Engine:
         self._next_trade_id = 1
         self._equity_rows: list[tuple[int, float, float, float, float, int]] = []
         self._ruined = False
+        self._ruined_at_ts_ms: int | None = None
 
         # Scheduling records skips, so the ledgers above have to exist first.
         self.runtimes: dict[str, _SymbolRuntime] = {}
@@ -561,6 +564,7 @@ class _Engine:
                 signal_qty=signal.qty,
                 signal_notional=signal.notional,
                 signal_risk_fraction=signal.risk_fraction,
+                spec=spec,
             )
         except ValueError as exc:
             self._skip(signal, SkipReason.INVALID_STOP_GEOMETRY, str(exc))
@@ -712,6 +716,9 @@ class _Engine:
             slippage_cost=priced.slippage_cost,
             fees=priced.fee,
             tag=signal.tag,
+            planned_tp=tuple(
+                (str(t.label), float(t.price), float(t.qty_fraction)) for t in (legs or ())
+            ),
         )
 
     def _resolve_level(
@@ -1047,15 +1054,18 @@ class _Engine:
                 entry_bar_exit=entry_bar_exit,
                 tag=pos.tag,
                 legs=tuple(pos.legs),
+                tp_levels=tuple(pos.planned_tp),
             )
         )
         rt.positions.remove(pos)
 
         if self._equity() <= 0:
             self._ruined = True
+            self._ruined_at_ts_ms = int(bar.ts_ms)
             self.warnings.append(
-                "wallet equity reached zero; trading stops unless a deposit policy is "
-                "declared (standard section 14.1)"
+                f"WALLET BLOWN at ts_ms={bar.ts_ms}: equity reached zero after "
+                f"trade {pos.trade_id}; trading stops unless a deposit policy is declared "
+                "(standard section 14.1)"
             )
 
     def _flatten_all(self) -> None:
@@ -1273,6 +1283,10 @@ class _Engine:
             "total_slippage": sum(t.slippage_cost for t in self.trades),
             "total_gross_pnl": sum(t.gross_pnl for t in self.trades),
             "total_realized_pnl": sum(t.realized_pnl for t in self.trades),
+            "wallet_blown": bool(self._ruined),
+            "ruined_at_ts_ms": self._ruined_at_ts_ms,
+            "n_longs": sum(1 for t in self.trades if int(t.side) > 0),
+            "n_shorts": sum(1 for t in self.trades if int(t.side) < 0),
         }
 
         stamp = None

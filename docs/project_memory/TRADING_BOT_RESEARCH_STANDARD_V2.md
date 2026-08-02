@@ -263,6 +263,13 @@ Therefore:
 4. Every result artifact MUST record the engine name, version, commit and fixture-pack hash. A result whose engine version cannot be resolved is not quotable evidence.
 5. Upgrading the shared engine is a material change under Section 2.3: it invalidates inherited readiness for affected results, and affected experiments MUST be rerun before their numbers are quoted again.
 
+**Xxobster / botsgeneral concrete binding (mandatory on this stack):**
+
+- The shared engine is **`tradesim`** at `C:\projects\botsgeneral\packages\tradesim`. Every strategy program (xgb, TSM-VPA, LLM1, crypthor, …) MUST import this tree — not a vendored copy, not an old wheel under `site-packages`, not GitHub `backtesting.py`.
+- Force the latest source before other tradesim imports: `from tradesim.ensure_source import prefer_botsgeneral_tradesim; prefer_botsgeneral_tradesim()`. Refuse to run if `tradesim.__file__` does not contain `botsgeneral`.
+- Preferred research entrypoint: `run_backtest(..., strategy_meta={…})`. Persist by default to `D:\projectsdata\backtests\tradesim_runs.sqlite` (embedded bars) and write `D:\projectsdata\backtests\reports\{run_id}\` (REPORT.md, strategy.json with name/batch/model path/TP/SL, metrics, trades.csv). Reopen with `tradesim-research open --run-id …` — do **not** re-simulate to redraw charts or reprint metrics.
+- Operator guide: `TRADESIM_BACKTEST_ENGINE_GUIDE.md`. Conformance must be GREEN before quoting numbers.
+
 ## 5. SQLite evidence and reproducibility
 
 SQLite is the authoritative store unless the user explicitly chooses an equally auditable alternative. CSV, JSON, Parquet and Markdown may be mirrors/exports; they are not the sole evidence source.
@@ -418,6 +425,8 @@ For news, macroeconomic releases, OI, sentiment, fundamentals and revised data, 
 
 Use a value only after its earliest genuine availability. Do not leak revised history backward.
 
+**Shared warehouse (Xxobster stack):** Cross-asset / LLM training features that are not the traded venue’s native OHLCV MUST come from `D:\projectsdata\candles\market_ohlcv.sqlite` (`botsgeneral.research_candles`), not ad-hoc per-project downloads. Include when in the candidate space: FRED yields (US02Y/US10Y/T10Y2Y), VIX/SPX/NDX, crypto mcap/dominance, stablecoin mcap/flows, Fear & Greed, plus Dukascopy FX/DXY/metals/oil. Refresh is incremental — skip series whose latest bar is still fresh. A live pack must refresh every symbol its feature list names.
+
 ## 7. Causality and look-ahead protection
 
 ### 7.1 Information, decision and execution timestamps
@@ -478,6 +487,25 @@ For representative cutoffs across regimes:
 6. **Pivot confirmation:** a pivot with right-hand bars becomes actionable only at confirmation.
 
 Any relevant failure makes affected results `ENGINE_INVALID`.
+
+### 7.5 Shared `leakage` package (mandatory before train/test)
+
+On the Xxobster / botsgeneral stack, truncation invariance and future mutation for
+**indicator / feature matrices** are executed through the shared package
+`C:\projects\botsgeneral\packages\leakage` (CLI `leakage-check`). Operator guide:
+`LEAKAGE_TEST_GUIDE.md`.
+
+Every coding agent must run this audit against the production feature builder
+**before** training, hunting, freezing or testing models. Hard failures mark each
+affected column `LEAKAGE_POTENTIAL` in the project registry
+(`database/leakage_registry.json` by default). Columns marked `LEAKAGE_POTENTIAL`
+must not enter a feature set until the builder is fixed, stores are rebuilt, and
+a clean audit passes.
+
+Physical train/test database separation remains useful hardening but **never**
+substitutes for prefix-invariance. Source-text greps for `.shift(-N)` /
+`center=True` are insufficient alone because leaky **library defaults** (for
+example `pandas_ta.dpo(centered=True)`) leave no literal in project code.
 
 ## 8. Signal and live/backtest parity
 

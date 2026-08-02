@@ -112,6 +112,7 @@ def resolve_accounts(keys_path: str | None = None) -> dict[str, dict[str, str]]:
             # xgb accounts (Xxobster2 / Xxobster13 live here)
             "/home/xgb/config/api_keys.json",
             "/home/xgb_match/config/api_keys.json",
+            "/home/ld/config/api_keys.json",
             "/opt/xgb/config/api_keys.json",
             str(Path(r"c:\projects\xgb\config\api_keys.json")),
             "/etc/botsgeneral/xgb_api_keys.json",

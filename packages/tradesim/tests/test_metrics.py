@@ -298,3 +298,30 @@ def test_metr_008_the_report_never_shows_a_bare_win_rate(
     assert report.win_rate_ci_low < 1.0, "one winning trade does not prove 100%"
     assert "Wilson 95%" in table
     assert "win rate           : 100.00%  [" in table
+
+
+def test_backtesting_py_compatible_stats_include_durations_and_sides(
+    instrument, costs, margin, sizing, sim
+):
+    """Familiar kernc/backtesting.py keys plus longs/shorts and hold durations."""
+    result = run(
+        [SIGNAL_BAR, QUIET_BAR_1, [2 * TF, 100.5, 111.0, 100.0, 110.0]],
+        [long_signal()],
+        instrument=instrument,
+        costs=costs,
+        margin=margin,
+        sizing=sizing,
+        sim=sim,
+    )
+    report = compute_metrics(result)
+    stats = report.as_backtesting_stats()
+    assert stats["# Trades"] == 1
+    assert stats["# Longs"] == 1
+    assert stats["# Shorts"] == 0
+    assert "Sortino Ratio" in stats
+    assert "SQN" in stats
+    assert "Kelly Criterion" in stats
+    assert "Avg. Trade Duration" in stats
+    assert "Max. Trade Duration" in stats
+    assert "Min. Trade Duration" in stats
+    assert "hold bars" in headline_table(report)

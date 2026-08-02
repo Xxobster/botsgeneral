@@ -18,9 +18,14 @@ dependencies = [
 # research repository can install the engine without a test runner.
 [project.optional-dependencies]
 conformance = ["pytest>=7.4"]
+plot = ["finplot>=1.9"]
 
 [project.scripts]
 tradesim-conformance = "tradesim.conformance.checker:main"
+tradesim-research = "tradesim.research.__main__:main"
+tradesim-venue = "tradesim.venue.__main__:main"
+tradesim-candles = "tradesim.research.candles:main"
+tradesim-update = "tradesim.ensure_source:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

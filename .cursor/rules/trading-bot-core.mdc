@@ -57,6 +57,57 @@ Never optimize TP/SL, multi-TP, break-even, leverage, size, filters, symbols or 
 - **Stamp every result** with engine name, version, commit, fixture-pack hash and conformance pass state. A number without a green conformance stamp is not quotable evidence, in any report, at any readiness level — including numbers already published in earlier summaries.
 - Upgrading the engine is a material change: it invalidates inherited readiness and affected experiments must be rerun before their numbers are quoted again.
 
+## tradesim — mandatory shared engine (Xxobster stack)
+
+Every strategy program that backtests, optimizes, hunts, plots trades, or compares live vs backtest **must** use the **latest** `tradesim` from botsgeneral. Do not use a vendored copy, a stale `site-packages` wheel, GitHub `backtesting.py`, or a per-repo Finplot/metrics helper that bypasses tradesim.
+
+- **Source of truth:** `C:\projects\botsgeneral\packages\tradesim`
+- **How-to guide (in this rules package):** `TRADESIM_BACKTEST_ENGINE_GUIDE.md` (also `docs/project_memory/TRADESIM_BACKTEST_ENGINE_GUIDE.md`)
+- **Before importing tradesim in any script:**
+
+```python
+from tradesim.ensure_source import prefer_botsgeneral_tradesim
+prefer_botsgeneral_tradesim()  # forces C:\projects\botsgeneral\packages\tradesim\src onto sys.path
+```
+
+  Or: `pip install -e C:\projects\botsgeneral\packages\tradesim[conformance,plot]` and verify
+  `tradesim.__file__` contains `botsgeneral`. Refuse to run if it does not.
+- **Preferred research API:** `run_backtest(..., strategy_meta={name, batch, model_path, tp_pct, sl_pct, ...})`.
+  Defaults persist to `D:\projectsdata\backtests\tradesim_runs.sqlite` and write a report folder
+  `D:\projectsdata\backtests\reports\{run_id}\` (REPORT.md, strategy.json, metrics, trades.csv).
+  Interactive terminals open the **full-period** Finplot chart + metrics; set `plot=False` /
+  `TRADESIM_NO_PLOT=1` for batch hunts.
+- **Reopen without re-simulating:** `tradesim-research open --run-id …` (or `plot` / `show` /
+  `trades`). Never resimulate just to redraw the chart or reprint metrics.
+- **Candles before live-vs-BT:** `ensure_candles` / `tradesim-candles` for decision + touch TF (Last+Mark).
+- **Before quoting numbers:** `tradesim-conformance --engine tradesim --tests …` must be GREEN in the same environment.
+- Plotting: only `tradesim.research.plot.plot_backtest` (returns `PlotView`). Metrics: only
+  `tradesim.metrics`. Custom panes/overlays: `extra_rows`, `extra_row_heights`, `on_axes(view)`
+  or `show=False` then draw on `view.extra_axes` — never a private Finplot layout. Details:
+  `TRADESIM_BACKTEST_ENGINE_GUIDE.md` § Finplot / Adding custom graphs; also `RULES.md`
+  Visualization.
+
+## leakage — mandatory shared causality gate (Xxobster stack)
+
+Every coding agent (Large Language Model session) that trains, hunts, freezes or tests models on project-built indicators **must** run the shared `leakage` engine **before** train/test. Separate train/test databases are hardening only and do **not** prove causality.
+
+- **Source of truth:** `C:\projects\botsgeneral\packages\leakage`
+- **How-to guide (in this rules package):** `LEAKAGE_TEST_GUIDE.md` (also `docs/project_memory/LEAKAGE_TEST_GUIDE.md`)
+- **Before importing:**
+
+```python
+from leakage.ensure_source import prefer_botsgeneral_leakage
+prefer_botsgeneral_leakage()  # forces C:\projects\botsgeneral\packages\leakage\src onto sys.path
+```
+
+  Or: `pip install -e C:\projects\botsgeneral\packages\leakage` and verify
+  `leakage.__file__` contains `botsgeneral`. Refuse to run if it does not.
+- **Decisive check:** prefix-invariance (recompute features on truncated Open-High-Low-Close-Volume; values through the cutoff must match the full series). Also run future-mutation, label name-scan, and optional train/test geometry.
+- **API:** `run_leakage_audit(ohlcv=..., build_features=..., registry_path=...)` then `require_clean_audit(report)`.
+- **CLI:** `leakage-check --builder module.path:build_features_for_guard --symbol BTCUSDT`.
+- If any hard-fail: stop training; mark columns `LEAKAGE_POTENTIAL` in `database/leakage_registry.json`; fix the feature builder; rebuild stores; re-audit to PASS; never select a `LEAKAGE_POTENTIAL` column.
+- Source greps alone are insufficient (leaky library defaults such as `pandas_ta.dpo(centered=True)` are invisible in project text).
+
 ## Product and data parity
 
 - Define the target venue, exact product, symbol, settlement, signal/execution prices, session/timezone, account/margin/position mode, order types, triggers, sizing, leverage, capital and portfolio rules before evaluating results.
@@ -64,6 +115,8 @@ Never optimize TP/SL, multi-TP, break-even, leverage, size, filters, symbols or 
 - Persist timestamped instrument specifications: launch/delivery, tick, quantity step, min/max quantity/notional, leverage limits, risk tiers, funding interval and relevant order limits.
 - Store data and evidence in SQLite. Raw series require source, retrieval time, UTC timestamp semantics, checksum/version and deterministic keys.
 - Reject or explicitly skip duplicates, gaps, stale/incomplete candles, invalid OHLC, pre-launch bars, timezone/session errors and insufficient feature coverage. Never silently fill OHLC or let missing data confirm a filter.
+- **Shared research warehouse (mandatory for training):** Before training, hunting, or backtesting ML/cross-pair/LLM price models, refresh and **use** `D:\projectsdata\candles\market_ohlcv.sqlite` via `botsgeneral.research_candles`. Do not re-download series that are already fresh in that DB. Required macro context when the candidate space includes cross-asset features: FX/DXY/metals/oil (Dukascopy), **US02Y/US10Y/T10Y2Y** (FRED), **VIX/SPX/NDX**, crypto **BTC_MCAP/ETH_MCAP/TOTAL_MCAP/BTC.D**, **STABLE_MCAP/STABLE_FLOW** (and USDT/USDC when available), **FNG**. Live must refresh the same symbols a deployed pack’s feature list references — never forward-fill frozen macros forever.
+- Incremental refresh only: skip a source/symbol/timeframe whose latest bar is still within the freshness window (daily macros ≈ 1–2 calendar days; 1h ≈ a few hours). Prefer `python -m botsgeneral.research_candles.download_all --only …` over per-project scrapers for the same series.
 
 ## Causality and code parity
 
@@ -73,6 +126,7 @@ Never optimize TP/SL, multi-TP, break-even, leverage, size, filters, symbols or 
 - Fit every learned transform inside its training window. Apply purge/embargo when labels or positions overlap boundaries.
 - Use one shared versioned strategy function for research and live wherever possible. Separate implementations require broad deterministic golden-fixture parity tests.
 - Future-mutation, truncation, streaming/batch and off-by-one tests must prove that changing future data cannot alter earlier actionable outputs.
+- **Before train/test:** run shared `leakage` (`LEAKAGE_TEST_GUIDE.md`). Physical train/test file splits do not replace prefix-invariance.
 
 ## Execution and accounting parity
 

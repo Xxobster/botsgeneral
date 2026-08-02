@@ -84,6 +84,9 @@ class SizingMode(str, Enum):
     FIXED_NOTIONAL = "fixed_notional"
     RISK_FRACTION = "risk_fraction"
     FIXED_RISK_CASH = "fixed_risk_cash"
+    # Smallest venue-legal order: max(min_qty, min_notional / price), rounded up to step.
+    # Preferred for research when absolute dollar PnL is secondary to path metrics.
+    MIN_EXCHANGE = "min_exchange"
 
 
 class LiquidationStatus(str, Enum):
@@ -627,6 +630,9 @@ class Trade:
     entry_bar_exit: bool
     tag: str = ""
     legs: tuple[tuple[str, int, float, float], ...] = ()  # (label, ts_ms, qty, price)
+    # Planned take-profit ladder at open: (label, price, qty_fraction). Empty when single TP
+    # is only in ``target_price``.
+    tp_levels: tuple[tuple[str, float, float], ...] = ()
 
     @property
     def entry_notional(self) -> float:

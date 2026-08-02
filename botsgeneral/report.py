@@ -173,7 +173,16 @@ def _running_symbols_for_bots(registry: dict, bot_names: list[str]) -> set[str]:
         prefix = str(cfg.get("systemd_prefix") or "").lower()
         systemd_match = [str(x).lower() for x in (cfg.get("systemd_match") or []) if x]
 
-        from botsgeneral.discover import path_appears_in_blob
+        try:
+            from botsgeneral.discover import path_appears_in_blob as _path_in_blob
+        except ImportError:
+            import re as _re
+
+            def _path_in_blob(p: str, blob: str) -> bool:
+                p = str(p or "").rstrip("/\\")
+                if not p:
+                    return False
+                return _re.search(_re.escape(p) + r"(?:[/\\]|\s|\"|'|$)", blob, flags=_re.IGNORECASE) is not None
 
         bot_blob_parts: list[str] = []
         for scr in screens:
@@ -182,7 +191,7 @@ def _running_symbols_for_bots(registry: dict, bot_names: list[str]) -> set[str]:
                 bot_blob_parts.append(scr)
         for line in proc.split("\n"):
             low = line.lower()
-            if path and path_appears_in_blob(path, line):
+            if path and _path_in_blob(path, line):
                 bot_blob_parts.append(line)
             elif any(m in low for m in process_matchers):
                 bot_blob_parts.append(line)
@@ -223,6 +232,29 @@ def _since_map_for_bots(settings: dict[str, Any], bot_names: list[str]) -> dict[
             if day:
                 out[str(sym).upper().replace("/", "")] = str(day).strip()[:10]
     return out
+
+
+def _account_since_override(settings: dict[str, Any], account_name: str) -> str | None:
+    """Optional per-account since_date from since_by_account (YYYY-MM-DD)."""
+    from botsgeneral.keys import canonicalize_account_name
+
+    by_acct = settings.get("since_by_account") or {}
+    if not isinstance(by_acct, dict):
+        return None
+    canon = canonicalize_account_name(account_name)
+    raw = by_acct.get(canon) or by_acct.get(account_name)
+    if raw is None:
+        for k, v in by_acct.items():
+            if canonicalize_account_name(str(k)) == canon:
+                raw = v
+                break
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        # allow {"*": "YYYY-MM-DD"} or ignore symbol map here (use bot map for symbols)
+        star = raw.get("*") or raw.get("all")
+        return str(star).strip()[:10] if star else None
+    return str(raw).strip()[:10] if raw else None
 
 
 def _filter_closed_by_since(
@@ -275,12 +307,23 @@ def build_fleet_report(
     sitrep = build_sitrep(registry_path=registry_path, vps_id=vps)
 
     running_bots = {b["bot"] for b in (sitrep.get("bots") or []) if b.get("running")}
-    # Accounts only for bots that are actually running on this host
+    # Accounts for bots that are actually running on this host (supports account: [list])
     preferred = {
         a
         for a, bots in acct_bots.items()
         if any(b in running_bots for b in bots)
     }
+    # Optional report.yaml accounts: allowlist filter (intersect when both set)
+    cfg_accounts = settings.get("accounts") or []
+    if isinstance(cfg_accounts, list) and cfg_accounts:
+        from botsgeneral.keys import canonicalize_account_name
+
+        wanted = {canonicalize_account_name(str(a)) for a in cfg_accounts if a}
+        if preferred:
+            filtered = preferred & wanted
+            preferred = filtered if filtered else preferred
+        else:
+            preferred = wanted
     use_accounts = {k: v for k, v in accounts.items() if k in preferred}
     missing = sorted(preferred - set(accounts.keys()))
 
@@ -305,7 +348,8 @@ def build_fleet_report(
         summary["bots"] = bots
         live_syms = _running_symbols_for_bots(registry, bots)
         since_by_sym = _since_map_for_bots(settings, bots)
-        fetch_start_ms = _earliest_since_ms(str(since), since_by_sym)
+        acct_since = _account_since_override(settings, name) or str(since)
+        fetch_start_ms = _earliest_since_ms(acct_since, since_by_sym)
         try:
             closed = fetch_closed_pnl(creds["api_key"], creds["api_secret"], fetch_start_ms)
         except Exception as e:
@@ -314,7 +358,7 @@ def build_fleet_report(
         # Keep closed trades only for live symbols when we know them
         if live_syms:
             closed = [t for t in closed if (t.get("symbol") or "").upper() in live_syms]
-        closed = _filter_closed_by_since(closed, str(since), since_by_sym)
+        closed = _filter_closed_by_since(closed, acct_since, since_by_sym)
         by_sym: dict[str, list] = {}
         for t in closed:
             sym = (t.get("symbol") or "?").upper()
@@ -336,11 +380,11 @@ def build_fleet_report(
             m = trade_metrics(by_sym[sym])
             m["symbol"] = sym
             m["n_closed"] = m["n_trades"]
-            m["since"] = since_by_sym.get(sym, since)
+            m["since"] = since_by_sym.get(sym, acct_since)
             opens = [p for p in (summary.get("positions") or []) if (p.get("symbol") or "").upper() == sym]
             m["open_positions"] = opens
             per_coin.append(m)
-        summary["since"] = since
+        summary["since"] = acct_since
         summary["since_by_symbol"] = since_by_sym
         summary["closed_all"] = trade_metrics(closed)
         summary["per_coin"] = per_coin
@@ -403,19 +447,21 @@ def build_trades_report(
     summary = account_summary(account_name, creds)
     bots = acct_bots.get(account_name, [])
     since_by_sym = _since_map_for_bots(settings, bots)
+    acct_since = _account_since_override(settings, account_name) or str(since)
+    since = acct_since
     sym_u = symbol.upper() if symbol else None
     if sym_u and sym_u in since_by_sym:
         since = since_by_sym[sym_u]
         start_ms = parse_since_ms(str(since))
     else:
-        start_ms = _earliest_since_ms(str(since), since_by_sym) if not sym_u else parse_since_ms(str(since))
+        start_ms = _earliest_since_ms(str(acct_since), since_by_sym) if not sym_u else parse_since_ms(str(acct_since))
     closed = fetch_closed_pnl(
         creds["api_key"],
         creds["api_secret"],
         start_ms,
         symbol=sym_u,
     )
-    closed = _filter_closed_by_since(closed, str(since_date or settings.get("since_date") or "2026-07-09"), since_by_sym)
+    closed = _filter_closed_by_since(closed, acct_since, since_by_sym)
     if sym_u:
         closed = [t for t in closed if (t.get("symbol") or "").upper() == sym_u]
     # sort newest first
@@ -452,7 +498,10 @@ def print_fleet_report(report: dict[str, Any]) -> None:
     if not bots:
         print("  (none)")
     for b in bots:
-        print(f"  [OK ] {b['bot']:12} account={b.get('account')} path_ok={b.get('path_exists')}")
+        acc = b.get("account")
+        if isinstance(acc, list):
+            acc = ",".join(str(a) for a in acc)
+        print(f"  [OK ] {b['bot']:12} account={acc} path_ok={b.get('path_exists')}")
     print("\nCandle pairs (active):")
     fresh = sitrep.get("candle_freshness") or []
     if not fresh:

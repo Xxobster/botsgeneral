@@ -1,10 +1,40 @@
 # Current State
 
-**Last updated:** 2026-07-25 (strategy↔tradesim contract frozen)
+**Last updated:** 2026-08-02 (Finplot `extra_rows` / `on_axes` + RULES_V2 zip)
+
+**Research wallet:** **10_000 USDT** (margin-safe at 1× for BTC/ETH min size). Headline
+money % = **return on invested notional**, not wallet %. Finplot: line/cross markers;
+custom panes via `plot_backtest(extra_rows=…, on_axes=…)` → `PlotView`.
+
+**Leakage gate (new):** `C:\projects\botsgeneral\packages\leakage` — every agent must
+run prefix-invariance / future-mutation via `leakage-check` or `run_leakage_audit`
+before train/test. Guide: `docs/project_memory/LEAKAGE_TEST_GUIDE.md`. Also in
+`TRADING_BOT_CURSOR_RULES_V2.zip`. xgb/LD not yet wired (migrate next).
+
+**Research warehouse macros (new):** yields (FRED US02Y/US10Y/T10Y2Y), VIX, SPX/NDX,
+crypto mcap/dominance, stablecoin mcap/flows, Fear & Greed — see CHANGELOG.
+Refresh: `python -m botsgeneral.research_candles.download_all --only fred,yahoo,crypto_macro`.
 
 ## Phase
 
 Collectors live for bots that opted in. **news** and **xgb** keep own Binance pulls.
+
+**Candle roles (frozen):** Last (`binance`) for signals/fills/TP–SL; Mark (`binance_mark`)
+for liquidation; both for go/no-go. See `DECISIONS.md`.
+
+**Full reference:** `docs/project_memory/TRADESIM_ENGINE_AND_METRICS.md` (how the engine
+runs + every metric formula, including why win rate < 50% is not automatically a loss).
+
+**Metrics:** `MetricsReport.as_backtesting_stats()` mirrors kernc/`backtesting.py` keys
+(plus longs/shorts, hold duration min/avg/max, SQN, Kelly, funding, HAC Sharpe).
+
+**Candle refresh API:** `ensure_candles` / `tradesim-candles` — mandatory before every
+backtest-versus-live comparison (`RULES.md`).
+
+**Validation session:** `packages/tradesim/tools/validate_btc_session.py` ran against
+BTCUSDT 1h (Last refreshed), 7 synthetic fills produced (entry-bar stop/TP observed),
+xgb `audit_v4` path compared (expected named differences on forced OHLC), live log sample
+from `C:\projects\xgb\log\btcusdt\trading.log` (5 latest placed trades listed).
 
 **tradesim Phases 1 and 2 are complete and green. Phase 3 (per-repository migration) has
 not started and is deliberately a separate session per repository.**
@@ -13,9 +43,37 @@ not started and is deliberately a separate session per repository.**
 `docs/project_memory/TRADESIM_BACKTEST_ENGINE_GUIDE.md` and
 `STRATEGY_TO_TRADESIM_CONTRACT.md` (Binance candles / Bybit costs, next-open entry,
 **limit TP/SL with no exit slip**, lower-TF same-bar resolution, historical funding,
-fixed size, 1× backtest leverage). Same guide is in
+**min exchange size** from Bybit instruments cache, 1× backtest leverage). Same guide is in
 `C:\projects\BASE CURSOR\TRADING_BOT_CURSOR_RULES_V2.zip` as
 `TRADESIM_BACKTEST_ENGINE_GUIDE.md`.
+
+### Bybit instrument minimums (research sizing)
+
+Fetched with account **Xxobster_local** (keys file under `BASE CURSOR`; secrets never cached)
+into `D:\projectsdata\candles\bybit_instruments.sqlite`. Refresh:
+
+```powershell
+python -m tradesim.venue --account Xxobster_local refresh --from-registry
+python -m tradesim.venue list
+```
+
+Registry pairs currently cached (USDT linear perpetuals; all `min_notional=5`):
+
+| symbol | min_qty | qty_step | tick | max_lev |
+|---|---:|---:|---:|---:|
+| BTCUSDT | 0.001 | 0.001 | 0.1 | 100 |
+| ETHUSDT | 0.01 | 0.01 | 0.01 | 100 |
+| SOLUSDT | 0.1 | 0.1 | 0.01 | 100 |
+| BNBUSDT | 0.01 | 0.01 | 0.1 | 50 |
+| XRPUSDT | 0.1 | 0.1 | 0.0001 | 100 |
+| DOGEUSDT | 1 | 1 | 1e-5 | 75 |
+| ADAUSDT | 1 | 1 | 0.0001 | 75 |
+| TRXUSDT | 1 | 1 | 1e-5 | 75 |
+| XLMUSDT | 1 | 1 | 1e-5 | 50 |
+| VETUSDT | 1 | 1 | 1e-6 | 25 |
+
+`run_backtest(..., symbol="BTCUSDT")` or `research_instrument("BTCUSDT")` loads these into
+`InstrumentSpec` for `SizingMode.MIN_EXCHANGE`.
 
 ### tradesim — the shared execution engine
 

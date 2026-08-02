@@ -50,6 +50,7 @@ def desired_qty(
     signal_qty: float | None = None,
     signal_notional: float | None = None,
     signal_risk_fraction: float | None = None,
+    spec: InstrumentSpec | None = None,
 ) -> tuple[float, str]:
     """Raw quantity before any exchange rounding, plus the unit it came from."""
     if signal_qty is not None:
@@ -61,6 +62,10 @@ def desired_qty(
         return float(cfg.fixed_qty), "fixed_qty"
     if cfg.mode == SizingMode.FIXED_NOTIONAL:
         return float(cfg.fixed_notional) / price, "fixed_notional"
+    if cfg.mode == SizingMode.MIN_EXCHANGE:
+        if spec is None:
+            raise ValueError("sizing mode min_exchange needs an InstrumentSpec")
+        return minimum_executable_qty(spec, price), "min_exchange"
 
     risk_per_unit = None if stop_price is None else abs(price - stop_price)
     if not risk_per_unit:

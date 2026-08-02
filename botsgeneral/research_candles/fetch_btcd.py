@@ -29,7 +29,7 @@ def fetch_coingecko_btcd_daily() -> pd.DataFrame:
     try:
         btc = session.get(
             "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
-            params={"vs_currency": "usd", "days": "max", "interval": "daily"},
+            params={"vs_currency": "usd", "days": "365", "interval": "daily"},
             headers=headers,
             timeout=60,
         )

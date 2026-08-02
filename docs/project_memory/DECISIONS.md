@@ -1,5 +1,67 @@
 # Decisions
 
+## 2026-08-01 — Shared `leakage` package is mandatory before train/test
+
+- New package: `C:\projects\botsgeneral\packages\leakage` (library + `leakage-check` CLI).
+- Every coding agent must run it against the production feature builder before
+  training, hunting, freezing or testing models. Decisive check: prefix-invariance
+  (catches leaky library defaults such as centered Detrended Price Oscillator).
+- Hard failures mark columns `LEAKAGE_POTENTIAL` in `database/leakage_registry.json`;
+  those columns must not enter a feature set until fixed + rebuilt + clean re-audit.
+- Physical train/test SQLite splits remain hardening only (Research Standard V2 §7.5).
+- Rules zip updated with `LEAKAGE_TEST_GUIDE.md` + `trading-bot-core.mdc` section.
+- xgb / LD migrate to call this package in a later session (prompts provided to user).
+
+## 2026-07-31 — tradesim report folders + always latest engine in RULES_V2
+
+- Interactive / review backtests persist SQLite + `D:\projectsdata\backtests\reports\{run_id}\`
+  and reopen via `tradesim-research open` without re-simulation.
+- Cursor rules zip (`TRADING_BOT_CURSOR_RULES_V2.zip`) and `trading-bot-core.mdc` require
+  `prefer_botsgeneral_tradesim()` so every program uses `C:\projects\botsgeneral\packages\tradesim`.
+
+## 2026-07-31 — Saved backtest fingerprint is the identity of a chart
+
+A reloaded Finplot/metrics view is the same run iff `run_fingerprint` matches
+(engine version + bars hash + trades hash + starting/ending equity + config digest).
+`bars_fingerprint` alone proves candle identity when re-attaching warehouse data.
+
+## 2026-08-02 — Research wallet 10_000 USDT (margin-safe at 1×)
+
+Supersedes the 100 USDT freeze: at leverage **1×**, Bybit min size for BTCUSDT
+(0.001) needs ~$100+ initial margin; with ``max_margin_utilisation=0.60`` a $100
+wallet rejects most BTC opens (`INSUFFICIENT_MARGIN`). Default research wallet is
+again **10_000 USDT** so margin never binds for fixed/min size. Headline money % is
+**return on invested notional** (`net_pnl / sum(entry_notional)`), not wallet %.
+
+## 2026-07-26 — Research starting wallet is 100 USDT (superseded 2026-08-02)
+
+User freeze: every research backtest defaults to **100 USDT** starting equity
+(`RESEARCH_STARTING_EQUITY_USDT`), not 10_000. Absolute dollar PnL is secondary to
+path metrics. **Superseded:** see 2026-08-02 — 100 USDT breaks BTC 1× margin.
+
+## 2026-07-26 — Always use latest tradesim from botsgeneral
+
+User rule: every program must backtest with the **latest** `packages/tradesim` under
+`C:\projects\botsgeneral`, via editable install / PYTHONPATH, preferably the botsgeneral
+research environment when it is ahead. No per-repo fork of the execution engine; no
+GitHub `backtesting.py` for quotable evidence.
+
+## 2026-07-26 — Last vs Mark candles (user agreed)
+
+Role-matched price series; do not pick one series for every purpose.
+
+- **Last Price** Open-High-Low-Close-Volume (OHLCV): signals, entry/exit **fills**, and
+  take-profit / stop-loss **touches** when live triggers on Last (warehouse
+  `source=binance`, `price_type=last`).
+- **Mark Price** OHLCV: **liquidation** path (Bybit liquidates on Mark); also TP/SL
+  touches when live is configured with `MarkPrice` trigger (`source=binance_mark`,
+  `price_type=mark_price`).
+- **Both** required for go/no-go / liquidation-parity evidence. Last-only is allowed for
+  early research only and leaves liquidation parity `UNKNOWN` / incomplete.
+- Never run the whole backtest on Mark alone (mis-models tradable fills and wicks).
+- Research remains Binance `RESEARCH_PROXY`; live venue is Bybit USDT perpetual — matching
+  Bybit Last + Mark is a later parity step, not implied by this freeze.
+
 ## 2026-07-26 — TP/SL are limits with no exit slippage
 
 User correction to the 2026-07-25 contract:
@@ -119,7 +181,7 @@ pessimistic one is the useful one.
 
 ## 2026-07-16 — Local research candle warehouse
 
-- **Path:** `D:\projectsdata\candles\market_ohlcv.sqlite` (Windows research machine only; not VPS live feed).
+- **Path:** `D:\projectsdata\candles\market_ohlcv.sqlite` (Windows research warehouse; live VPS refreshes the same macro symbols a deployed pack’s feature list names via `cross_pair_live`, without re-pulling fresh bars).
 - **Sources kept separate** via `source` column: `dukascopy`, `yahoo`, `binance`, `tradingview`, `coingecko` — never merge CFD/futures/spot under one silent label.
 - **Macro/FX:** Dukascopy primary for intraday (DXY, HKG40 CFD ≠ official HSI, XAU/XAG, WTI/Brent, majors). Yahoo for official HSI daily + futures cross-checks.
 - **Crypto:** Binance USD-M futures for the union of project symbols (BTC/ETH/SOL + alts + HYPE/AVAX/LINK/DOT).

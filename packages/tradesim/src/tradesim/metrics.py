@@ -51,6 +51,8 @@ class SharpeReport:
 class MetricsReport:
     # period and coverage
     n_trades: int
+    n_longs: int
+    n_shorts: int
     start_ts_ms: int
     end_ts_ms: int
     span_days: float
@@ -58,9 +60,16 @@ class MetricsReport:
     # wallet
     starting_equity: float
     ending_equity: float
+    equity_peak: float
     net_pnl: float
     total_return: float
+    invested_notional: float
+    return_on_invested: float
     cagr: float
+    buy_hold_return: float
+    volatility_annualised: float
+    wallet_blown: bool
+    ruined_at_ts_ms: int | None
     # distribution
     profit_factor: float
     profit_factor_note: str
@@ -76,13 +85,36 @@ class MetricsReport:
     payoff_ratio: float
     worst_trade: float
     best_trade: float
+    best_trade_pct: float
+    worst_trade_pct: float
+    avg_trade_pct: float
     cvar_5: float
+    # duration (backtesting.py-style + bars)
+    avg_hold_bars: float
+    min_hold_bars: float
+    max_hold_bars: float
+    avg_hold_hours: float
+    min_hold_hours: float
+    max_hold_hours: float
+    # side split
+    long_pnl: float
+    short_pnl: float
+    long_win_rate: float
+    short_win_rate: float
+    # streaks / quality
+    max_consecutive_wins: int
+    max_consecutive_losses: int
+    sqn: float
+    kelly_fraction: float
+    recovery_factor: float
     # risk
     sharpe: SharpeReport
     sortino_annualised: float
     max_drawdown: float
     max_drawdown_pct: float
     max_drawdown_duration_days: float
+    avg_drawdown_pct: float
+    avg_drawdown_duration_days: float
     calmar: float
     # execution honesty
     exposure: float
@@ -105,6 +137,62 @@ class MetricsReport:
         out = asdict(self)
         out["sharpe"] = asdict(self.sharpe)
         return out
+
+    def as_backtesting_stats(self) -> dict[str, Any]:
+        """Keys aligned with kernc/backtesting.py ``._stats.compute_stats`` where possible.
+
+        Extra tradesim-only fields (longs/shorts, fees, funding, HAC Sharpe, …) are included
+        under the same dict so a strategy report can show everything in one place.
+        """
+        sh = self.sharpe
+        return {
+            "Start": self.start_ts_ms,
+            "End": self.end_ts_ms,
+            "Duration": self.span_days,
+            "Exposure Time [%]": self.exposure * 100.0,
+            "Equity Final [$]": self.ending_equity,
+            "Equity Peak [$]": self.equity_peak,
+            "Commissions [$]": self.total_fees,
+            "Return [%]": self.total_return * 100.0,
+            "Return on Invested [%]": self.return_on_invested * 100.0,
+            "Invested Notional [$]": self.invested_notional,
+            "Net PnL [$]": self.net_pnl,
+            "Buy & Hold Return [%]": self.buy_hold_return * 100.0,
+            "Return (Ann.) [%]": self.cagr * 100.0 if math.isfinite(self.cagr) else math.nan,
+            "Volatility (Ann.) [%]": self.volatility_annualised * 100.0,
+            "CAGR [%]": self.cagr * 100.0 if math.isfinite(self.cagr) else math.nan,
+            "Sharpe Ratio": sh.annualised,
+            "Sortino Ratio": self.sortino_annualised,
+            "Calmar Ratio": self.calmar,
+            "Max. Drawdown [%]": self.max_drawdown_pct * 100.0,
+            "Avg. Drawdown [%]": self.avg_drawdown_pct * 100.0,
+            "Max. Drawdown Duration": self.max_drawdown_duration_days,
+            "Avg. Drawdown Duration": self.avg_drawdown_duration_days,
+            "# Trades": self.n_trades,
+            "# Longs": self.n_longs,
+            "# Shorts": self.n_shorts,
+            "Win Rate [%]": self.win_rate * 100.0 if math.isfinite(self.win_rate) else math.nan,
+            "Best Trade [%]": self.best_trade_pct * 100.0,
+            "Worst Trade [%]": self.worst_trade_pct * 100.0,
+            "Avg. Trade [%]": self.avg_trade_pct * 100.0,
+            "Max. Trade Duration": self.max_hold_hours,
+            "Avg. Trade Duration": self.avg_hold_hours,
+            "Min. Trade Duration": self.min_hold_hours,
+            "Profit Factor": self.profit_factor,
+            "Expectancy [%]": self.expectancy_return_units * 100.0,
+            "SQN": self.sqn,
+            "Kelly Criterion": self.kelly_fraction,
+            # tradesim extras (not in backtesting.py)
+            "Sharpe HAC (ann.)": sh.hac_annualised,
+            "Funding [$]": self.total_funding,
+            "Slippage [$]": self.total_slippage,
+            "Long PnL [$]": self.long_pnl,
+            "Short PnL [$]": self.short_pnl,
+            "Recovery Factor": self.recovery_factor,
+            "Max Consecutive Wins": self.max_consecutive_wins,
+            "Max Consecutive Losses": self.max_consecutive_losses,
+            "Entry-bar exit rate [%]": self.entry_bar_exit_rate * 100.0,
+        }
 
 
 # --------------------------------------------------------------------------------------
@@ -256,6 +344,65 @@ def max_drawdown(equity: Sequence[float] | np.ndarray) -> tuple[float, float, in
     return magnitude, fraction, duration
 
 
+def avg_drawdown_stats(
+    equity: Sequence[float] | np.ndarray,
+) -> tuple[float, float]:
+    """Mean drawdown fraction and mean drawdown episode length (in periods)."""
+    e = np.asarray(equity, dtype=float)
+    e = e[np.isfinite(e)]
+    if e.size == 0:
+        return 0.0, 0.0
+    peak = np.maximum.accumulate(e)
+    frac = np.where(peak > 0, (peak - e) / peak, 0.0)
+    underwater = frac > 1e-12
+    avg_frac = float(frac[underwater].mean()) if underwater.any() else 0.0
+    lengths: list[int] = []
+    cur = 0
+    for flag in underwater:
+        if flag:
+            cur += 1
+        elif cur:
+            lengths.append(cur)
+            cur = 0
+    if cur:
+        lengths.append(cur)
+    avg_len = float(np.mean(lengths)) if lengths else 0.0
+    return avg_frac, avg_len
+
+
+def _streak_extremes(pnls: np.ndarray) -> tuple[int, int]:
+    max_w = max_l = cur_w = cur_l = 0
+    for p in pnls:
+        if p > 0:
+            cur_w += 1
+            cur_l = 0
+            max_w = max(max_w, cur_w)
+        elif p < 0:
+            cur_l += 1
+            cur_w = 0
+            max_l = max(max_l, cur_l)
+        else:
+            cur_w = cur_l = 0
+    return max_w, max_l
+
+
+def _sqn(pnls: np.ndarray) -> float:
+    """Van Tharp System Quality Number: ``sqrt(n) * mean / std`` of trade PnL."""
+    if pnls.size < 2:
+        return math.nan
+    std = float(np.std(pnls, ddof=1))
+    if std <= 0:
+        return math.nan
+    return float(math.sqrt(pnls.size) * np.mean(pnls) / std)
+
+
+def _kelly(win_rate: float, payoff: float) -> float:
+    """Classical Kelly fraction ``p - (1-p)/b`` with ``b`` = avg_win/|avg_loss|."""
+    if not math.isfinite(win_rate) or not math.isfinite(payoff) or payoff <= 0:
+        return math.nan
+    return float(win_rate - (1.0 - win_rate) / payoff)
+
+
 # --------------------------------------------------------------------------------------
 # Top level
 # --------------------------------------------------------------------------------------
@@ -276,9 +423,15 @@ def compute_metrics(
     *,
     annualisation_days: float = DEFAULT_ANNUALISATION_DAYS,
     risk_free_per_period: float = 0.0,
+    bars: Any | None = None,
 ) -> MetricsReport:
     trades: tuple[Trade, ...] = result.trades
     pnls = np.asarray([t.realized_pnl for t in trades], dtype=float)
+    rets = np.asarray([t.return_units for t in trades], dtype=float)
+    holds = np.asarray([t.hold_bars for t in trades], dtype=float)
+    hold_hours = np.asarray(
+        [(t.exit_ts_ms - t.entry_ts_ms) / 3_600_000.0 for t in trades], dtype=float
+    )
     n = len(trades)
 
     equity_df = result.equity
@@ -296,6 +449,11 @@ def compute_metrics(
         r, annualisation_days=annualisation_days, risk_free_per_period=risk_free_per_period
     )
     so = sortino(r, annualisation_days=annualisation_days)
+    vol_ann = (
+        float(np.std(r, ddof=1) * math.sqrt(annualisation_days))
+        if r.size >= 2
+        else math.nan
+    )
 
     pf, pf_note = profit_factor(pnls)
     wins = int((pnls > 0).sum())
@@ -305,16 +463,28 @@ def compute_metrics(
     lo, hi = wilson_interval(wins, n)
 
     dd_mag, dd_frac, dd_periods = max_drawdown(mtm)
+    avg_dd_frac, avg_dd_len = avg_drawdown_stats(mtm)
     period_days = (span_days / max(1, len(mtm) - 1)) if len(mtm) > 1 else 1.0
 
     net = result.ending_equity - result.starting_equity
     total_return = net / result.starting_equity if result.starting_equity else math.nan
+    invested_notional = float(sum(abs(float(t.qty) * float(t.entry_price)) for t in trades))
+    return_on_invested = (
+        net / invested_notional if invested_notional > 0 else math.nan
+    )
     years = span_days / 365.0
     cagr = (
         ((result.ending_equity / result.starting_equity) ** (1.0 / years) - 1.0)
         if years > 0 and result.starting_equity > 0 and result.ending_equity > 0
         else math.nan
     )
+
+    buy_hold = math.nan
+    if bars is not None and len(bars) >= 2:
+        c0 = float(bars.close[0])
+        c1 = float(bars.close[-1])
+        if c0 > 0:
+            buy_hold = c1 / c0 - 1.0
 
     exposure = _exposure(equity_df)
     turnover = sum(abs(f.notional) for f in result.fills) / (
@@ -325,43 +495,88 @@ def compute_metrics(
     sorted_pnls = np.sort(pnls) if n else np.empty(0)
     tail = max(1, int(math.ceil(0.05 * n))) if n else 0
 
+    longs = [t for t in trades if int(t.side) > 0]
+    shorts = [t for t in trades if int(t.side) < 0]
+    long_pnls = np.asarray([t.realized_pnl for t in longs], dtype=float)
+    short_pnls = np.asarray([t.realized_pnl for t in shorts], dtype=float)
+    payoff = (
+        float(winners.mean() / abs(losses.mean()))
+        if winners.size and losses.size and losses.mean() != 0
+        else math.nan
+    )
+    max_w, max_l = _streak_extremes(pnls)
+    equity_peak = float(np.max(mtm)) if mtm.size else result.ending_equity
+
     return MetricsReport(
         n_trades=n,
+        n_longs=int(summary.get("n_longs", len(longs))),
+        n_shorts=int(summary.get("n_shorts", len(shorts))),
         start_ts_ms=start_ts,
         end_ts_ms=end_ts,
         span_days=span_days,
         trades_per_month=(n / (span_days / 30.4375)) if span_days > 0 else math.nan,
         starting_equity=result.starting_equity,
         ending_equity=result.ending_equity,
+        equity_peak=equity_peak,
         net_pnl=net,
         total_return=total_return,
+        invested_notional=invested_notional,
+        return_on_invested=return_on_invested,
         cagr=cagr,
+        buy_hold_return=buy_hold,
+        volatility_annualised=vol_ann,
+        wallet_blown=bool(summary.get("wallet_blown", False)) or result.ending_equity <= 0,
+        ruined_at_ts_ms=(
+            int(summary["ruined_at_ts_ms"])
+            if summary.get("ruined_at_ts_ms") is not None
+            else None
+        ),
         profit_factor=pf,
         profit_factor_note=pf_note,
         win_rate=wr,
         win_rate_ci_low=lo,
         win_rate_ci_high=hi,
         expectancy=float(pnls.mean()) if n else math.nan,
-        expectancy_return_units=(
-            float(np.mean([t.return_units for t in trades])) if n else math.nan
-        ),
+        expectancy_return_units=float(rets.mean()) if n else math.nan,
         avg_win=float(winners.mean()) if winners.size else math.nan,
         avg_loss=float(losses.mean()) if losses.size else math.nan,
         median_win=float(np.median(winners)) if winners.size else math.nan,
         median_loss=float(np.median(losses)) if losses.size else math.nan,
-        payoff_ratio=(
-            float(winners.mean() / abs(losses.mean()))
-            if winners.size and losses.size and losses.mean() != 0
-            else math.nan
-        ),
+        payoff_ratio=payoff,
         worst_trade=float(pnls.min()) if n else math.nan,
         best_trade=float(pnls.max()) if n else math.nan,
+        best_trade_pct=float(rets.max()) if n else math.nan,
+        worst_trade_pct=float(rets.min()) if n else math.nan,
+        avg_trade_pct=float(rets.mean()) if n else math.nan,
         cvar_5=float(sorted_pnls[:tail].mean()) if tail else math.nan,
+        avg_hold_bars=float(holds.mean()) if n else math.nan,
+        min_hold_bars=float(holds.min()) if n else math.nan,
+        max_hold_bars=float(holds.max()) if n else math.nan,
+        avg_hold_hours=float(hold_hours.mean()) if n else math.nan,
+        min_hold_hours=float(hold_hours.min()) if n else math.nan,
+        max_hold_hours=float(hold_hours.max()) if n else math.nan,
+        long_pnl=float(long_pnls.sum()) if long_pnls.size else 0.0,
+        short_pnl=float(short_pnls.sum()) if short_pnls.size else 0.0,
+        long_win_rate=(
+            float((long_pnls > 0).mean()) if long_pnls.size else math.nan
+        ),
+        short_win_rate=(
+            float((short_pnls > 0).mean()) if short_pnls.size else math.nan
+        ),
+        max_consecutive_wins=max_w,
+        max_consecutive_losses=max_l,
+        sqn=_sqn(pnls),
+        kelly_fraction=_kelly(wr, payoff),
+        recovery_factor=(
+            net / dd_mag if dd_mag > 0 and math.isfinite(net) else math.nan
+        ),
         sharpe=sh,
         sortino_annualised=so,
         max_drawdown=dd_mag,
         max_drawdown_pct=dd_frac,
         max_drawdown_duration_days=dd_periods * period_days,
+        avg_drawdown_pct=avg_dd_frac,
+        avg_drawdown_duration_days=avg_dd_len * period_days,
         calmar=(cagr / dd_frac) if dd_frac > 0 and math.isfinite(cagr) else math.nan,
         exposure=exposure,
         turnover=turnover,
@@ -422,26 +637,69 @@ def headline_table(report: MetricsReport) -> str:
         lines.append("conformance stamp  : ABSENT — these numbers are not quotable evidence")
     lines += [
         "-" * 78,
-        f"trades             : {report.n_trades}  ({report.trades_per_month:.2f}/month over {report.span_days:.1f} days)",
-        f"net PnL            : {report.net_pnl:,.2f}  ({report.total_return:.2%})",
-        f"expectancy         : {report.expectancy:,.4f} per trade",
-        f"profit factor      : {report.profit_factor:.4f} {report.profit_factor_note}",
-        f"win rate           : {report.win_rate:.2%}  [{report.win_rate_ci_low:.2%}, {report.win_rate_ci_high:.2%}] Wilson 95%",
-        f"payoff             : {report.payoff_ratio:.3f}   avg win {report.avg_win:,.2f} / avg loss {report.avg_loss:,.2f}",
+        f"period             : {report.span_days:.1f} days  "
+        f"({_fmt_ts(report.start_ts_ms)} -> {_fmt_ts(report.end_ts_ms)})",
+        f"trades             : {report.n_trades}  "
+        f"(longs {report.n_longs} / shorts {report.n_shorts})  "
+        f"{report.trades_per_month:.2f}/month",
+        f"hold bars          : avg {report.avg_hold_bars:.2f}  "
+        f"min {report.min_hold_bars:.0f}  max {report.max_hold_bars:.0f}",
+        f"hold hours         : avg {report.avg_hold_hours:.2f}  "
+        f"min {report.min_hold_hours:.2f}  max {report.max_hold_hours:.2f}",
+        f"wallet             : {report.starting_equity:,.2f} -> {report.ending_equity:,.2f}"
+        f"  peak {report.equity_peak:,.2f}"
+        + ("  *** WALLET BLOWN ***" if report.wallet_blown else ""),
+        f"net PnL            : {report.net_pnl:,.2f} USDT   "
+        f"on invested {report.invested_notional:,.2f}  "
+        f"({report.return_on_invested:.2%} ROI on investment)  "
+        f"[headline money % — not wallet %]",
+        f"wallet return      : {report.total_return:.2%} of starting equity  "
+        f"buy&hold {report.buy_hold_return:.2%}  "
+        f"[secondary — wallet is oversized so margin never binds]",
+        f"long/short PnL     : {report.long_pnl:,.2f} / {report.short_pnl:,.2f}  "
+        f"WR {report.long_win_rate:.2%} / {report.short_win_rate:.2%}",
+        f"expectancy         : {report.expectancy:,.4f} USDT/trade  "
+        f"({report.expectancy_return_units:.4%} per unit invested)",        f"profit factor      : {report.profit_factor:.4f} {report.profit_factor_note}",
+        f"win rate           : {report.win_rate:.2%}  "
+        f"[{report.win_rate_ci_low:.2%}, {report.win_rate_ci_high:.2%}] Wilson 95%",
+        f"payoff             : {report.payoff_ratio:.3f}   "
+        f"avg win {report.avg_win:,.2f} / avg loss {report.avg_loss:,.2f}",
+        f"SQN / Kelly        : {report.sqn:.3f} / {report.kelly_fraction:.3f}",
+        f"streaks (W/L)      : {report.max_consecutive_wins} / "
+        f"{report.max_consecutive_losses}",
         f"Sharpe daily raw   : {sh.raw_periodic:.4f}   (n={sh.n_periods})",
-        f"Sharpe annualised  : {sh.annualised:.4f}   (factor sqrt({sh.annualisation_factor ** 2:.0f}))",
-        f"Sharpe HAC raw/ann : {sh.hac_raw:.4f} / {sh.hac_annualised:.4f}   (Bartlett lag {sh.hac_lag})",
+        f"Sharpe annualised  : {sh.annualised:.4f}   "
+        f"(factor sqrt({sh.annualisation_factor ** 2:.0f}))",
+        f"Sharpe HAC raw/ann : {sh.hac_raw:.4f} / {sh.hac_annualised:.4f}   "
+        f"(Bartlett lag {sh.hac_lag})",
         f"Sortino annualised : {report.sortino_annualised:.4f}",
-        f"max drawdown (MTM) : {report.max_drawdown:,.2f}  ({report.max_drawdown_pct:.2%}) over {report.max_drawdown_duration_days:.1f} days",
-        f"Calmar             : {report.calmar:.4f}",
+        f"volatility (ann.)  : {report.volatility_annualised:.2%}",
+        f"max drawdown (MTM) : {report.max_drawdown:,.2f}  ({report.max_drawdown_pct:.2%}) "
+        f"over {report.max_drawdown_duration_days:.1f} days",
+        f"avg drawdown       : {report.avg_drawdown_pct:.2%}  "
+        f"over {report.avg_drawdown_duration_days:.1f} days",
+        f"Calmar / recovery  : {report.calmar:.4f} / {report.recovery_factor:.4f}",
         f"exposure / turnover: {report.exposure:.2%} / {report.turnover:.2f}x",
-        f"fees / slip / fund : {report.total_fees:,.2f} / {report.total_slippage:,.2f} / {report.total_funding:,.2f}",
+        f"fees / slip / fund : {report.total_fees:,.2f} / {report.total_slippage:,.2f} / "
+        f"{report.total_funding:,.2f}",
         f"entry-bar exits    : {report.entry_bar_exits} ({report.entry_bar_exit_rate:.1%})",
         f"ambiguous intrabar : {report.ambiguous_intrabar} ({report.ambiguous_rate:.1%})",
         f"liquidations       : {report.n_liquidations}   status {report.liquidation_status}",
         f"skips              : {report.n_skips} {dict(report.skip_counts) or ''}",
         "=" * 78,
     ]
+    if report.wallet_blown:
+        lines.insert(
+            5,
+            f"*** WALLET BLOWN at ts_ms={report.ruined_at_ts_ms} — "
+            "subsequent signals were not traded ***",
+        )
     for w in report.warnings:
         lines.append(f"WARNING: {w}")
     return "\n".join(lines) + "\n"
+
+
+def _fmt_ts(ts_ms: int) -> str:
+    if not ts_ms:
+        return "?"
+    return pd.Timestamp(ts_ms, unit="ms", tz="UTC").strftime("%Y-%m-%d")

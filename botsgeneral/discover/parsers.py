@@ -14,27 +14,28 @@ log = logging.getLogger(__name__)
 
 def parse_bot(name: str, bcfg: dict[str, Any]) -> list[CandlePair]:
     parser = bcfg.get("parser") or "none"
-    if parser in ("none", None, ""):
-        return []
-    root = Path(bcfg.get("path") or ".")
     exchange = (bcfg.get("exchange") or "bybit").lower()
     also = [normalize_timeframe(x) for x in (bcfg.get("also_fetch_timeframes") or [])]
 
-    if parser == "wip_fleet":
-        pairs = _parse_wip_fleet(root, exchange)
-    elif parser == "news_yaml":
-        pairs = _parse_news_yaml(root, exchange)
-    elif parser == "divergences_launch":
-        pairs = _parse_divergences_launch(root, exchange)
-    elif parser == "crypthor_services":
-        pairs = _parse_crypthor(root, exchange)
-    elif parser == "karmaa_config":
-        pairs = _parse_karmaa(root, exchange)
-    elif parser == "tsm_vpa_pack":
-        pairs = _parse_tsm_vpa_pack(root, exchange)
+    if parser in ("none", None, ""):
+        pairs = _parse_static_symbols(bcfg, exchange)
     else:
-        log.warning("Unknown parser %s for bot %s", parser, name)
-        return []
+        root = Path(bcfg.get("path") or ".")
+        if parser == "wip_fleet":
+            pairs = _parse_wip_fleet(root, exchange)
+        elif parser == "news_yaml":
+            pairs = _parse_news_yaml(root, exchange)
+        elif parser == "divergences_launch":
+            pairs = _parse_divergences_launch(root, exchange)
+        elif parser == "crypthor_services":
+            pairs = _parse_crypthor(root, exchange)
+        elif parser == "karmaa_config":
+            pairs = _parse_karmaa(root, exchange)
+        elif parser == "tsm_vpa_pack":
+            pairs = _parse_tsm_vpa_pack(root, exchange)
+        else:
+            log.warning("Unknown parser %s for bot %s", parser, name)
+            return []
 
     if also:
         extra: list[CandlePair] = []
@@ -51,6 +52,21 @@ def parse_bot(name: str, bcfg: dict[str, Any]) -> list[CandlePair]:
             continue
         seen.add(p.key())
         out.append(p)
+    return out
+
+
+def _parse_static_symbols(bcfg: dict[str, Any], exchange: str) -> list[CandlePair]:
+    """Registry-declared symbols/timeframe when parser is none (e.g. ld, xgb)."""
+    symbols = bcfg.get("symbols") or []
+    if not symbols:
+        return []
+    tf = normalize_timeframe(bcfg.get("timeframe") or "1h")
+    ex = (bcfg.get("exchange") or exchange or "binance").lower()
+    out: list[CandlePair] = []
+    for s in symbols:
+        sym = normalize_symbol(s)
+        if sym:
+            out.append(CandlePair(ex, sym, tf))
     return out
 
 

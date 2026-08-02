@@ -24,10 +24,14 @@ if [[ ! -f /etc/botsgeneral/report.yaml ]]; then
 fi
 systemctl daemon-reload
 systemctl enable --now "botsgeneral-collector@${VPS_IP}"
+# Pin interactive `bots` / sitrep to this host (path-hit fallback is ambiguous across fleets)
+mkdir -p /etc/botsgeneral
+echo "${VPS_IP}" >/etc/botsgeneral/vps_id
 sleep 3
 systemctl --no-pager status "botsgeneral-collector@${VPS_IP}" || true
 PYTHONPATH=/opt/botsgeneral ./venv/bin/python -m botsgeneral --vps "${VPS_IP}" discover
 echo "Keys: /etc/botsgeneral/bybit_keys.txt"
+echo "VPS pin: /etc/botsgeneral/vps_id"
 echo "Report since date: /etc/botsgeneral/report.yaml"
 echo "From /root just run:  bots"
 echo "Drilldown:            bots trades Xxobster4 BTCUSDT"

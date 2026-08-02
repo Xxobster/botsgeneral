@@ -417,7 +417,9 @@ def test_qty_009_a_ruined_wallet_stops_trading(instrument, costs, sizing, sim):
     assert result.trades[0].exit_reason == "liquidation"
     assert result.ending_equity < 0
     assert result.skip_counts == {SkipReason.WALLET_RUINED.value: 1}
-    assert any("wallet equity reached zero" in w for w in result.warnings)
+    assert any("WALLET BLOWN" in w or "wallet equity reached zero" in w for w in result.warnings)
+    assert result.meta["summary"]["wallet_blown"] is True
+    assert result.meta["summary"]["ruined_at_ts_ms"] == 2 * TF
 
 
 @pytest.mark.conformance("QTY-010")

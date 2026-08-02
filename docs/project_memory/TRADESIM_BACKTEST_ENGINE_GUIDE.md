@@ -5,6 +5,9 @@
 **Frozen:** 2026-07-26  
 **Companion:** this file is part of Trading Bot Cursor Rules v2; keep it next to the research standard.
 
+**Full engine + metrics reference (formulas, win-rate FAQ):**  
+`docs/project_memory/TRADESIM_ENGINE_AND_METRICS.md`
+
 ---
 
 ## 1. What the engine is (and is not)
@@ -34,7 +37,7 @@ Walk-forward, train/test splits and feature building stay in the strategy / rese
 | `side` | `+1` or `-1` | Long or short |
 | `stop_price` **or** `stop_offset` | float | Absolute SL, **or** fraction of the **actual entry fill** (engine applies the fraction after the fill) |
 | `target_price` **or** `target_offset` | float | Absolute TP, **or** fraction of the actual entry fill |
-| `qty` | float | Fixed size (same unit the live bot will trade) |
+| `qty` | float | Optional. Omit in research → smallest exchange-legal size. Set only to override. |
 
 ### 2.2 Per trade (optional)
 
@@ -57,13 +60,13 @@ Walk-forward, train/test splits and feature building stay in the strategy / rese
 
 | Step | Behaviour |
 |---|---|
-| Market data | Binance USDⓈ-M perpetual Open-High-Low-Close-Volume (OHLCV) for research. Label results `RESEARCH_PROXY`. Live trading is on Bybit USDT perpetual. |
+| Market data | Binance USDⓈ-M perpetual Open-High-Low-Close-Volume (OHLCV) for research. Label results `RESEARCH_PROXY`. Live trading is on Bybit USDT perpetual. **Last** for signals/fills/TP–SL path; **Mark** for liquidation (and for TP/SL only if live triggers on Mark). Both for go/no-go. |
 | Entry | Fill at the **next candle’s open** after `decision_ts_ms`, with **entry slippage**, **taker** fee. |
 | Take-profit | **Limit** order. When price **touches** the TP level → fill **exactly at the TP price**. **No exit slippage.** |
 | Stop-loss | **Limit** order. When price **touches** the SL level → fill **exactly at the SL price**. **No exit slippage.** |
 | Fees | **Taker** rate on every fill by default (Bybit non-VIP **0.055%** = `0.00055`), so research is not cheaper than live. Entry is a market-style fill; TP/SL are limit *prices* but still charged taker unless a project later freezes proven maker fills. |
-| Sizing | Fixed `qty` from the signal. Assumed filled (retail size). |
-| Leverage (backtest) | **1×**. Live: derive leverage from SL so liquidation sits beyond the SL. |
+| Sizing | **Smallest exchange-legal quantity** (`SizingMode.MIN_EXCHANGE`) unless `Signal.qty` is set |
+| Starting funds | **10_000 USDT** (margin-safe at 1×); if equity hits ≤ 0 → **WALLET BLOWN**, trading stops, timestamp recorded |
 | Funding | Actual historical funding rates at each settlement while the position is open (not a flat average). |
 | Same candle hits both TP and SL | Resolve on a **lower timeframe**. If both still hit on one lower bar → **SL wins**. |
 | Entry bar | SL and TP are active from the fill instant on that same bar. **No free bar of immunity.** |
@@ -113,33 +116,175 @@ python -m botsgeneral research-candles --only binance --symbols BTCUSDT,ETHUSDT 
 
 ---
 
-## 5. How to call the engine (shape)
+## 5. How to call the engine (research runner)
 
-Exact Python API lives in `tradesim` (`simulate` / `simulate_portfolio`). Conceptually:
+We do **not** use a third-party `backtest.py` library. The shared engine is **`tradesim`**.
 
-```text
-inputs:
-  - OHLCV bars (decision TF)
-  - optional touch OHLCV (lower TF)
-  - optional funding series (settlement_ts, rate)
-  - list of signals (section 2)
-  - CostConfig: taker_rate=0.00055, entry_slippage=..., market_exit_slippage for timeouts only
-  - SimConfig: entry = next_open, starting_equity=..., leverage=1x
+Preferred API for every strategy:
 
-output:
-  - trades (entry/exit times & prices, reason, fees, funding, pnl, …)
-  - equity curve
-  - metrics (win rate, Sharpe, Sortino, max drawdown, trade counts, …)
-  - conformance stamp (required before quoting numbers)
+```python
+from tradesim import run_backtest, Signal, BarSeries
+
+bundle = run_backtest(
+    strategy_id="my-strategy",          # required — associates the run with the strategy
+    strategy_version="2026-07-26",
+    bars=decision_bars,                 # set bars.symbol or pass symbol=
+    symbol="BTCUSDT",                   # loads Bybit min qty/step/notional from cache
+    signals=signals,                    # leave Signal.qty unset → min exchange size
+    touch_bars=touch_bars,              # optional lower TF
+    funding_ts_ms=..., funding_rate=...,
+    strategy_meta={                     # shown in report + metrics window
+        "name": "my-strategy",
+        "batch": "wf-2026-07",
+        "model_name": "trial.joblib",
+        "model_path": r"C:\projects\xgb\models\trial.joblib",
+        "tp_pct": 1.0,
+        "sl_pct": 2.0,
+    },
+    # store_path / reports_dir default to D:/projectsdata/backtests/...
+    # plot defaults to True on interactive terminals (TRADESIM_NO_PLOT=1 to disable)
+)
+# bundle.metrics  → Sharpe, Sortino, WR, trades/month, …
+# bundle.wallet_blown → True if the wallet hit zero
+# bundle.report_dir → D:/projectsdata/backtests/reports/<run_id>/
+print(bundle.headline)
 ```
 
-Install (from `botsgeneral`):
+Every run writes a **report folder** (no need to re-simulate later):
+
+| File | Contents |
+|---|---|
+| `REPORT.md` | Strategy table + headline metrics + reopen command |
+| `strategy.json` | Name, batch, model path, TP/SL, features, … |
+| `metrics.json` / `metrics.txt` | Full metrics |
+| `trades.csv` / `equity.csv` | Trade blotter + equity curve |
+| `meta.json` | Fingerprints + `tradesim-research open` command |
+
+Reopen chart + metrics (full period, from embedded bars):
 
 ```text
-pip install -e packages/tradesim
+tradesim-research open --run-id <run_id>
 ```
 
-A number **without** a green conformance stamp is not quotable evidence (rules v2.2).
+Refresh Bybit instrument limits (uses **Xxobster_local** keys by default):
+
+```text
+python -m tradesim.venue --account Xxobster_local refresh --from-registry
+python -m tradesim.venue list
+```
+
+Cache path: `D:/projectsdata/candles/bybit_instruments.sqlite`.
+
+### Refresh research candles before every backtest / live comparison
+
+**Mandatory** for backtest-versus-live-log work (also in `RULES.md`):
+
+```text
+python -m tradesim.research.candles --symbols BTCUSDT --timeframes 1h,1m --price-type both
+```
+
+```python
+from tradesim.research import ensure_candles
+ensure_candles(["BTCUSDT"], ["1h", "1m"], price_types=("last", "mark"))
+```
+
+### Finplot review (`plot=True` / interactive default)
+
+TradingView-inspired dark chart over the **whole** bar period (`max_bars=0`):
+
+1. **Top — equity** (~20% height): default **realized** step curve (closed trades only);
+   use `equity_mode="mtm"` for mark-to-market every bar. Peak / Final / Max DD legend.
+2. **Price**: dark `#131722`; default `trade_style="lines"` — short horizontals (±3 bars)
+   + cross at entry / stop-loss / each take-profit; labels `LONG`/`SHORT`, `SL`, `TP1`…;
+   **green** = win, **red** = loss. Legacy filled zones: `trade_style="zones"`.
+3. **Optional extra panes** under price (`extra_rows`, `extra_row_heights`) for indicators /
+   volume / Relative Strength Index (RSI) / etc.
+4. **Metrics window**: strategy details + full headline + `as_backtesting_stats()`; click
+   the price chart to reopen it.
+
+```python
+bundle = run_backtest(..., plot=True, strategy_meta={...})
+# or reopen without re-simulating:
+# tradesim-research open --run-id bundle.run_id
+from tradesim.research.plot import plot_backtest
+plot_backtest(bars, bundle.result, relative_equity=False, max_bars=0)
+```
+
+#### Adding custom graphs (hooks — no private Finplot fork)
+
+`plot_backtest` returns a `PlotView` and accepts:
+
+| Argument | Role |
+|---|---|
+| `extra_rows=N` | Create N empty panes below price (shared X-axis) |
+| `extra_row_heights=(h,…)` | Finplot `axis_height_factor` weights (default `0.45` each) |
+| `on_axes(view)` | Draw after standard layers, before `fplt.show()` |
+| `show=False` | Return without showing; draw yourself then `view.fplt.show()` |
+
+`PlotView` fields: `fplt`, `axes`, `ax_equity`, `ax_price`, `extra_axes`, clipped
+`bars_df` / `equity_df`, `trades`, `title`, `metrics`. Sequence protocol still allows
+`ax_eq, ax_px = plot_backtest(...)` when there are only two panes.
+
+```python
+from tradesim.research.plot import plot_backtest
+
+def add_rsi(view):
+    # rsi aligned to view.bars_df.index (UTC)
+    view.fplt.plot(rsi.index, rsi.values, ax=view.extra_axes[0], legend="RSI")
+    view.fplt.add_line(
+        (view.bars_df.index[0], 30), (view.bars_df.index[-1], 30),
+        color="#787b86", ax=view.extra_axes[0],
+    )
+
+plot_backtest(bars, result, extra_rows=1, extra_row_heights=(0.5,), on_axes=add_rsi)
+
+# Or defer show:
+view = plot_backtest(bars, result, show=False, extra_rows=1)
+view.fplt.volume_ocv(view.bars_df[["Open", "Close", "Volume"]], ax=view.extra_axes[0])
+view.fplt.show()
+```
+
+Programs must call `prefer_botsgeneral_tradesim()` / `ensure_latest_tradesim(update=True)`
+so these hooks match the shared botsgeneral package — never a vendored plot helper.
+
+### Metrics (backtesting.py parity + extras)
+
+`bundle.metrics` is the authoritative report. For names familiar from GitHub
+`backtesting.py`, call `bundle.metrics.as_backtesting_stats()` — includes # trades,
+longs/shorts, win rate, Sortino, durations (avg/min/max), SQN, Kelly, buy & hold,
+volatility, avg/max drawdown, fees, funding, etc.
+
+Frozen research defaults inside `run_backtest`:
+
+| Setting | Value |
+|---|---|
+| Starting funds | **10_000 USDT** |
+| Position size | **Smallest exchange-legal** (`min_qty` / `min_notional`) |
+| Leverage | 1× |
+| TP / SL | Limit, no exit slip |
+| Entry | Next open + entry slip, taker fee |
+| Wallet blown | Trading stops; flag + timestamp recorded and printed |
+
+Inspect stored runs:
+
+```text
+tradesim-research list --db D:/projectsdata/backtests/tradesim_runs.sqlite
+tradesim-research list --db ... --strategy my-strategy
+tradesim-research show --db ... --run-id my-strategy-abc123
+tradesim-research trades --db ... --run-id my-strategy-abc123
+```
+
+Every run stores: full metrics JSON, every trade, equity curve, conformance stamp, and
+`wallet_blown` / `ruined_at_ts_ms`.
+
+### Metrics captured (headline)
+
+Period (days + date range), trades total, longs/shorts, trades/month, win rate (+ Wilson
+interval), profit factor, expectancy, payoff, Sharpe (raw + annualised + HAC), Sortino,
+max drawdown (MTM), Calmar, exposure, turnover, fees / slip / funding, entry-bar exit
+rate, ambiguous bars, liquidations, skips, wallet blown.
+
+Absolute USDT PnL is recorded but secondary — with min size it is small by design.
 
 ---
 

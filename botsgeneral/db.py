@@ -71,6 +71,11 @@ class CandleDB:
         return row[0] if row else default
 
     def upsert_candles(self, rows: Iterable[CandleRow]) -> int:
+        """Insert new bars; on conflict update only when OHLCV/aux fields differ.
+
+        Never deletes history. Corrected exchange bars (same ts_ms, new OHLCV)
+        overwrite the previous row and bump ``updated_at_ms``.
+        """
         now = int(time.time() * 1000)
         payload = [r.as_db_tuple(now) for r in rows]
         if not payload:
@@ -94,6 +99,16 @@ class CandleDB:
               taker_buy_base=excluded.taker_buy_base,
               taker_buy_quote=excluded.taker_buy_quote,
               updated_at_ms=excluded.updated_at_ms
+            WHERE
+              candles.open IS NOT excluded.open
+              OR candles.high IS NOT excluded.high
+              OR candles.low IS NOT excluded.low
+              OR candles.close IS NOT excluded.close
+              OR candles.volume IS NOT excluded.volume
+              OR ifnull(candles.quote_volume, -1) IS NOT ifnull(excluded.quote_volume, -1)
+              OR ifnull(candles.trades, -1) IS NOT ifnull(excluded.trades, -1)
+              OR ifnull(candles.taker_buy_base, -1) IS NOT ifnull(excluded.taker_buy_base, -1)
+              OR ifnull(candles.taker_buy_quote, -1) IS NOT ifnull(excluded.taker_buy_quote, -1)
             """,
             payload,
         )

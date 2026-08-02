@@ -6,6 +6,10 @@ export PYTHONPATH="${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 export BOTSGENERAL_KEYS="${BOTSGENERAL_KEYS:-/etc/botsgeneral/bybit_keys.txt}"
 export BOTSGENERAL_REPORT_CFG="${BOTSGENERAL_REPORT_CFG:-/etc/botsgeneral/report.yaml}"
 export SHARED_CANDLES_DB="${SHARED_CANDLES_DB:-/var/lib/botsgeneral/shared_candles.db}"
+# Pin VPS id when present (avoids wrong fallback when several bot trees exist)
+if [[ -z "${BOTSGENERAL_VPS:-}" && -f /etc/botsgeneral/vps_id ]]; then
+  export BOTSGENERAL_VPS="$(tr -d '[:space:]' </etc/botsgeneral/vps_id)"
+fi
 PY="${ROOT}/venv/bin/python"
 
 usage() {

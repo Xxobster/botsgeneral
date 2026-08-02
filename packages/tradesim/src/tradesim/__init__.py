@@ -60,6 +60,12 @@ from .contracts import (
     round_to_tick,
 )
 from .conformance.stamp import ConformanceStamp, NotQuotableError, assert_quotable
+from .ensure_source import (
+    assert_botsgeneral_tradesim,
+    ensure_latest_tradesim,
+    prefer_botsgeneral_tradesim,
+    update_tradesim,
+)
 from .engine import (
     DataValidationError,
     InfeasibleOrderError,
@@ -79,6 +85,18 @@ from .exits import (
 )
 from .metrics import MetricsReport, SharpeReport, compute_metrics, headline_table
 from .parity import ParityDiff, Tolerance, diff_trades, run_parity
+from .research import (
+    RESEARCH_STARTING_EQUITY_USDT,
+    BacktestBundle,
+    BacktestStore,
+    research_costs,
+    research_instrument,
+    research_margin,
+    research_sim,
+    research_sizing,
+    run_backtest,
+)
+from .venue import InstrumentCache, fetch_instrument, fetch_instruments
 from .version import ENGINE_NAME, ENGINE_VERSION, RESULT_SCHEMA_VERSION
 
 __version__ = ENGINE_VERSION
@@ -110,6 +128,7 @@ __all__ = [
     "MetricsReport",
     "NotQuotableError",
     "ParityDiff",
+    "RESEARCH_STARTING_EQUITY_USDT",
     "ProtectiveLevels",
     "REASON_BREAK_EVEN",
     "REASON_END_OF_DATA",
@@ -136,20 +155,35 @@ __all__ = [
     "Tolerance",
     "Trade",
     "TrailConfig",
+    "assert_botsgeneral_tradesim",
     "assert_quotable",
     "base_reason",
     "compute_metrics",
     "diff_trades",
+    "ensure_latest_tradesim",
     "headline_table",
     "is_entry_bar_reason",
+    "prefer_botsgeneral_tradesim",
     "resolve_bar",
     "resolve_bar_exit",
     "round_to_step",
     "round_to_tick",
+    "run_backtest",
     "run_parity",
+    "research_costs",
+    "research_instrument",
+    "research_margin",
+    "research_sim",
+    "research_sizing",
+    "BacktestBundle",
+    "BacktestStore",
+    "InstrumentCache",
+    "fetch_instrument",
+    "fetch_instruments",
     "simulate",
     "simulate_portfolio",
     "update_protective_levels",
+    "update_tradesim",
     "validate_bars",
     "__version__",
 ]

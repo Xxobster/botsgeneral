@@ -12,6 +12,16 @@ takes the points you give it and executes them as close to live as the data allo
 Label every Binance-OHLCV result `RESEARCH_PROXY` — good enough for strategy research,
 not a live/backtest parity PASS on its own.
 
+**Price series (frozen 2026-07-26):**
+
+| Role | Series | Warehouse |
+|---|---|---|
+| Signals, fills, TP/SL touches (Last trigger) | **Last** OHLCV | `source=binance` |
+| Liquidation (and Mark-triggered TP/SL if live uses it) | **Mark** OHLCV | `source=binance_mark` |
+| Go/no-go liquidation evidence | **Both** | — |
+
+Last-only research is incomplete for liquidation parity. Mark-only backtests are forbidden.
+
 ---
 
 ## 1. What the strategy must give (per trade)

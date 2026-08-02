@@ -47,3 +47,4 @@ pytest tests -q
 
 - `eventactivities-vps` → 94.156.189.76
 - `poly-vps` → 212.73.150.178
+- `185.203.119.52` → LD live (+ optional xgb trees); `serve_candles: false` for all bots on this host

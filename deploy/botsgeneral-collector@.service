@@ -19,6 +19,7 @@ Nice=5
 
 # Enable with: systemctl enable --now botsgeneral-collector@94.156.189.76
 #          or: systemctl enable --now botsgeneral-collector@212.73.150.178
+#          or: systemctl enable --now botsgeneral-collector@185.203.119.52
 
 [Install]
 WantedBy=multi-user.target

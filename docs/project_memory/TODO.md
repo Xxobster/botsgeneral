@@ -18,8 +18,17 @@ exercise is to find out which.
 - [ ] Add LIVE-001..004 (live-versus-backtest reconciliation) to the registry's required
       set once a bot is running on tradesim; they are registered but not yet required
 
+## leakage — per-repository migration
+
+- [ ] **xgb** — wrap `scripts/check_indicator_leakage.py` / hunt gates to call
+      `packages/leakage` (`utils.calc_indicators:build_features_for_guard`)
+- [ ] **LD** — wrap `ld/leakage_guard.py` / hunt+freeze gates to call
+      `packages/leakage` (keep LD attestation; add shared prefix/future-mutation)
+- [ ] Other ML repos (LLM1, …): add `build_features_for_guard` + pre-train audit
+
 ## Now
 
+- [x] Install per-VPS public keys (`ln1`/`ln2`/`ln3`/`sm`) into root `authorized_keys` (verified 2026-08-02)
 - [ ] Finish / verify first full research candle download → `D:\projectsdata\candles\coverage.csv`
 - [ ] Export TradingView CRYPTOCAP:BTC.D (1h/4h/1d) into `D:\projectsdata\candles\imports\btcd\`
 - [ ] Point local research scripts at `ResearchCandleDB` instead of per-project re-downloads

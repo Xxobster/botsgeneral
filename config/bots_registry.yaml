@@ -14,6 +14,9 @@ vps:
     bots: [xgb, xgb_match, tsm_vpa]
   "212.73.150.178":
     bots: [divergences, crypthor2, karmaa_mp, news]
+  "185.203.119.52":
+    # 3 account groups (Xxobster9/10/11) share the same Binance 1h pairs via collector
+    bots: [ld, xgb, xgb_match]
 
 bots:
   news:
@@ -51,10 +54,30 @@ bots:
     process_match: ["vps_run_asset_live_match.py"]
     screen_match: ["xxobster13"]
 
+  # Liquidity / LD live — 3 account groups share Binance USD-M 1h for BTC/ETH/SOL/BNB
+  # Symbol bots (Xxobster9 systemd) + script default 10 + crosspair 11 all read shared DB
+  ld:
+    serve_candles: true
+    exchange: binance
+    account: [Xxobster9, Xxobster10, Xxobster11]
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+      - SOLUSDT
+      - BNBUSDT
+    timeframe: 1h
+    # HTF features resample from 1h; keep 1h as the served series
+    path: /home/ld
+    parser: none
+    process_match: ["run_ld_live_symbol.py", "run_ld_live_crosspair.py"]
+    systemd_match: ["ld-live@", "ld-live-crosspair"]
+    screen_match: ["ld"]
+
   divergences:
     serve_candles: true
     exchange: bybit
-    account: Xxobster3
+    # Xxobster3: BTC 4h conf + ETH 1h continuation; Xxobster6: ETH 1h confluence (same pair, separate account)
+    account: [Xxobster3, Xxobster6]
     path: /opt/divergences
     parser: divergences_launch
     process_match: ["run_live", "divergences"]
