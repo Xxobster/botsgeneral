@@ -39,6 +39,48 @@ def apply_entry_slippage(ref_price: float, side: Side, costs: CostConfig, tick: 
     return price
 
 
+def resolve_limit_entry_price(
+    *,
+    ref_price: float,
+    side: Side,
+    tick: float,
+    limit_price: float | None = None,
+    limit_offset: float | None = None,
+) -> float:
+    """Passive limit price for a Post-Only style entry.
+
+    Absolute ``limit_price`` wins. Else ``limit_offset`` is a non-negative fraction
+    placed on the *passive* side of ``ref_price`` (long buys below, short sells above).
+    Both omitted → limit equals the reference (rest at the entry reference price).
+    """
+    if limit_price is not None:
+        price = float(limit_price)
+    elif limit_offset is not None:
+        off = abs(float(limit_offset))
+        # Long: buy below ref; short: sell above ref.
+        price = float(ref_price) * (1.0 - int(side) * off)
+    else:
+        price = float(ref_price)
+    if tick > 0:
+        # Round passively (never make the limit more aggressive).
+        price = round_to_tick(price, tick, "floor" if int(side) > 0 else "ceil")
+    return price
+
+
+def limit_entry_would_cross(*, side: Side, ref_price: float, limit_price: float) -> bool:
+    """True when a buy limit is at/above the reference or a sell limit at/below it."""
+    if int(side) > 0:
+        return float(limit_price) > float(ref_price) + 1e-15
+    return float(limit_price) < float(ref_price) - 1e-15
+
+
+def limit_entry_touched(*, side: Side, bar_high: float, bar_low: float, limit_price: float) -> bool:
+    """Whether the entry bar's range reaches a resting limit."""
+    if int(side) > 0:
+        return float(bar_low) <= float(limit_price) + 1e-12
+    return float(bar_high) >= float(limit_price) - 1e-12
+
+
 def price_fill(
     *,
     role: FeeRole | str,
@@ -46,9 +88,10 @@ def price_fill(
     price: float,
     ref_price: float,
     costs: CostConfig,
+    liquidity: Liquidity | None = None,
 ) -> PricedFill:
-    rate = costs.rate_for(role)
-    liquidity = costs.liquidity_for(role)
+    liq = costs.liquidity_for(role) if liquidity is None else liquidity
+    rate = costs.rate_for(role, liquidity=liq)
     notional = abs(qty * price)
     return PricedFill(
         price=float(price),
@@ -57,7 +100,7 @@ def price_fill(
         notional=notional,
         fee=notional * rate,
         fee_rate=rate,
-        liquidity=liquidity.value if isinstance(liquidity, Liquidity) else str(liquidity),
+        liquidity=liq.value if isinstance(liq, Liquidity) else str(liq),
         slippage_cost=abs(qty) * abs(price - ref_price),
     )
 

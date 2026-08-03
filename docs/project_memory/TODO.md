@@ -28,6 +28,7 @@ exercise is to find out which.
 
 ## Now
 
+- [x] Shared `indicators` package + warehouse (`D:\projectsdata\indicators\indicators.sqlite`)
 - [x] Install per-VPS public keys (`ln1`/`ln2`/`ln3`/`sm`) into root `authorized_keys` (verified 2026-08-02)
 - [ ] Finish / verify first full research candle download → `D:\projectsdata\candles\coverage.csv`
 - [ ] Export TradingView CRYPTOCAP:BTC.D (1h/4h/1d) into `D:\projectsdata\candles\imports\btcd\`

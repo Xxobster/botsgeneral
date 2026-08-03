@@ -1,10 +1,15 @@
 # Current State
 
-**Last updated:** 2026-08-02 (Finplot `extra_rows` / `on_axes` + RULES_V2 zip)
+**Last updated:** 2026-08-03 (shared `indicators` Fibonacci structure warehouse)
+
+**Indicators warehouse:** `D:\projectsdata\indicators\indicators.sqlite` — confirmed
+swings, HH/HL structure, Fibonacci retracements, S/R distances for every series in
+`market_ohlcv.sqlite`. Package: `packages/indicators`. Guide: `INDICATORS_GUIDE.md`.
 
 **Research wallet:** **10_000 USDT** (margin-safe at 1× for BTC/ETH min size). Headline
 money % = **return on invested notional**, not wallet %. Finplot: line/cross markers;
-custom panes via `plot_backtest(extra_rows=…, on_axes=…)` → `PlotView`.
+custom panes via `plot_backtest(extra_rows=…, on_axes=…)`. Limit entry:
+`research_limit_entry_costs()` + `research_sim_limit_entry()` (maker, no slip).
 
 **Leakage gate (new):** `C:\projects\botsgeneral\packages\leakage` — every agent must
 run prefix-invariance / future-mutation via `leakage-check` or `run_leakage_audit`

@@ -43,12 +43,14 @@ from .contracts import (
     Bar,
     BarSeries,
     CostConfig,
+    EntryOrder,
     EntryRef,
     FeeRole,
     Fill,
     FundingCharge,
     InstrumentSpec,
     LiquidationStatus,
+    Liquidity,
     MarginConfig,
     MarginMode,
     SameBarPolicy,
@@ -70,7 +72,13 @@ from .exits import (
     resolve_bar,
     update_protective_levels,
 )
-from .fees import apply_entry_slippage, price_fill
+from .fees import (
+    apply_entry_slippage,
+    limit_entry_touched,
+    limit_entry_would_cross,
+    price_fill,
+    resolve_limit_entry_price,
+)
 from .funding import (
     FundingSchedule,
     funding_cashflow,
@@ -533,7 +541,47 @@ class _Engine:
         else:  # pragma: no cover - enum is exhaustive
             raise ValueError(f"unhandled entry reference {self.sim.entry_ref}")
 
-        fill_price = apply_entry_slippage(ref, signal.side, self.costs, spec.tick_size)
+        entry_order = (
+            EntryOrder.coerce(signal.entry_order)
+            if signal.entry_order is not None
+            else EntryOrder.coerce(self.sim.entry_order)
+        )
+        entry_liquidity: Liquidity | None = None
+        if entry_order == EntryOrder.LIMIT:
+            limit_px = resolve_limit_entry_price(
+                ref_price=ref,
+                side=signal.side,
+                tick=spec.tick_size,
+                limit_price=signal.limit_price,
+                limit_offset=signal.limit_offset,
+            )
+            if limit_px <= 0:
+                self._skip(signal, SkipReason.QTY_ROUNDS_TO_ZERO, "non-positive limit price")
+                return None
+            if limit_entry_would_cross(side=signal.side, ref_price=ref, limit_price=limit_px):
+                self._skip(
+                    signal,
+                    SkipReason.LIMIT_WOULD_CROSS,
+                    f"limit {limit_px} crosses reference {ref}; Post-Only would cancel",
+                )
+                return None
+            if not limit_entry_touched(
+                side=signal.side,
+                bar_high=float(bar.high),
+                bar_low=float(bar.low),
+                limit_price=limit_px,
+            ):
+                self._skip(
+                    signal,
+                    SkipReason.LIMIT_NOT_FILLED,
+                    f"entry bar did not touch limit {limit_px}",
+                )
+                return None
+            # Resting limit: fill at the limit, maker fee, no entry slippage.
+            fill_price = limit_px
+            entry_liquidity = Liquidity.MAKER
+        else:
+            fill_price = apply_entry_slippage(ref, signal.side, self.costs, spec.tick_size)
         if fill_price <= 0:
             self._skip(signal, SkipReason.QTY_ROUNDS_TO_ZERO, "non-positive entry price")
             return None
@@ -656,8 +704,11 @@ class _Engine:
             role=FeeRole.ENTRY,
             qty=qty,
             price=fill_price,
-            ref_price=ref,
+            # Limit entries have no slippage by definition; keep market path's
+            # ref→fill delta as the slip diagnostic.
+            ref_price=fill_price if entry_order == EntryOrder.LIMIT else ref,
             costs=self.costs,
+            liquidity=entry_liquidity,
         )
         self.cash -= priced.fee
         self.fills.append(

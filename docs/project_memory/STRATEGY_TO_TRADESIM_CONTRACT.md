@@ -48,10 +48,10 @@ the engine only executes the trade list of each fold.
 
 | Setting | Frozen default |
 |---|---|
-| Entry | **Next open** after the signal candle closes, with **entry slippage**, **taker** fee |
+| Entry | **Market (default):** next open + entry slippage + **taker** fee. **Limit (opt-in):** fill at limit when touched, **maker** fee, **no** entry slip (`research_limit_entry_costs` + `research_sim_limit_entry` / `Signal.entry_order`) |
 | Take-profit | **Limit** order → fill **at the TP price** when touched. **No exit slippage** |
 | Stop-loss | **Limit** order → fill **at the SL price** when touched. **No exit slippage** |
-| Fees | **Taker** on every fill (Bybit non-VIP **0.055%** = `0.00055`). TP/SL use limit *prices* but taker fee unless a project later freezes proven maker fills |
+| Fees | **Taker** on every fill by default (Bybit non-VIP **0.055%** = `0.00055`). Limit entry / proven resting TP may use **maker** **0.02%** = `0.0002` |
 | Fee rate basis | Bybit costs even though candles are Binance — research must not be cheaper than live |
 | Sizing | **Fixed quantity** from the signal (assumed filled at retail size) |
 | Leverage in backtest | **1×** (see §5) |
@@ -60,7 +60,7 @@ the engine only executes the trade list of each fold.
 
 Slippage:
 
-- `entry_slippage`: project-frozen (typical 0.02%–0.15%) — **entry only**
+- `entry_slippage`: project-frozen (typical 0.02%–0.15%) — **market entry only** (ignored for `entry_order=LIMIT`)
 - `market_exit_slippage`: **timeout / max-hold / end-of-data only** — never TP or SL
 
 ---

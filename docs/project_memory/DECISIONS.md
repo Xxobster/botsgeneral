@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-08-03 — Shared `indicators` package is the only price-structure calculator
+
+- New package: `C:\projects\botsgeneral\packages\indicators`.
+- Computes confirmed swings, HH/HL/LH/LL, leg lengths, Fibonacci retracement depth,
+  Fibonacci grids, distance to confirmed support/resistance.
+- Authoritative store: `D:\projectsdata\indicators\indicators.sqlite`.
+- Strategy programs open the DB and copy columns; they must not invent private
+  swing/fib helpers.
+- Default `update-all` covers every candle series at 1h/4h/1d/1w (add 15m or `all` as needed).
+- Rules zip includes `INDICATORS_GUIDE.md` + `trading-bot-core.mdc` section.
+
+## 2026-08-03 — Limit entry (maker, no slip) is an opt-in, not the gate default
+
+- Default research entry remains **market**: next open + entry slip + **taker** 0.055%.
+- Opt-in: `EntryOrder.LIMIT` via `research_sim_limit_entry()` /
+  `research_limit_entry_costs()` or per-signal `entry_order="limit"`.
+- Semantics: Post-Only style — fill at limit when touched (maker 0.02%, no slip);
+  miss → skip; crossing → skip (never silent taker conversion).
+- Maker assumptions cannot rescue a failing all-taker baseline without fill evidence
+  (Research Standard §11 / frozen gates).
+
 ## 2026-08-01 — Shared `leakage` package is mandatory before train/test
 
 - New package: `C:\projects\botsgeneral\packages\leakage` (library + `leakage-check` CLI).

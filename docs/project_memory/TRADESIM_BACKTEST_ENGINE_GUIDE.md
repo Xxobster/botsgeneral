@@ -61,19 +61,75 @@ Walk-forward, train/test splits and feature building stay in the strategy / rese
 | Step | Behaviour |
 |---|---|
 | Market data | Binance USDⓈ-M perpetual Open-High-Low-Close-Volume (OHLCV) for research. Label results `RESEARCH_PROXY`. Live trading is on Bybit USDT perpetual. **Last** for signals/fills/TP–SL path; **Mark** for liquidation (and for TP/SL only if live triggers on Mark). Both for go/no-go. |
-| Entry | Fill at the **next candle’s open** after `decision_ts_ms`, with **entry slippage**, **taker** fee. |
+| Entry | **Market (default):** next open + entry slippage + **taker** fee.<br>**Limit (optional):** rest at the limit when touched → fill **at the limit**, **maker** fee, **no** entry slippage. See §3.1. |
 | Take-profit | **Limit** order. When price **touches** the TP level → fill **exactly at the TP price**. **No exit slippage.** |
 | Stop-loss | **Limit** order. When price **touches** the SL level → fill **exactly at the SL price**. **No exit slippage.** |
-| Fees | **Taker** rate on every fill by default (Bybit non-VIP **0.055%** = `0.00055`), so research is not cheaper than live. Entry is a market-style fill; TP/SL are limit *prices* but still charged taker unless a project later freezes proven maker fills. |
+| Fees | **Taker** rate on every fill by default (Bybit non-VIP **0.055%** = `0.00055`), so research is not cheaper than live. A **limit entry** (and a proven resting TP) can use **maker** **0.02%** = `0.0002` — only when live actually posts Post-Only / resting orders. |
 | Sizing | **Smallest exchange-legal quantity** (`SizingMode.MIN_EXCHANGE`) unless `Signal.qty` is set |
 | Starting funds | **10_000 USDT** (margin-safe at 1×); if equity hits ≤ 0 → **WALLET BLOWN**, trading stops, timestamp recorded |
 | Funding | Actual historical funding rates at each settlement while the position is open (not a flat average). |
 | Same candle hits both TP and SL | Resolve on a **lower timeframe**. If both still hit on one lower bar → **SL wins**. |
 | Entry bar | SL and TP are active from the fill instant on that same bar. **No free bar of immunity.** |
 
-### Entry slippage only
+### 3.1 Limit entry (maker fee, no slippage)
 
-- `entry_slippage`: project-frozen (typical starting range about 0.02%–0.15%).  
+Use this only when the live bot places a **resting / Post-Only** entry. It does **not** replace the all-taker market baseline for gates unless maker fills are evidenced.
+
+**Whole-run default:**
+
+```python
+from tradesim import (
+    run_backtest,
+    research_limit_entry_costs,
+    research_sim_limit_entry,
+)
+
+bundle = run_backtest(
+    strategy_id="my-strat",
+    bars=bars,
+    signals=signals,
+    costs=research_limit_entry_costs(),   # maker 0.02% on entry; slip 0
+    sim=research_sim_limit_entry(),       # entry_order=LIMIT
+)
+```
+
+**Per signal:**
+
+```python
+from tradesim import Signal, Side, EntryOrder
+
+Signal(
+    ts_ms=decision_ts,
+    side=Side.LONG,
+    stop_offset=0.01,
+    target_offset=0.02,
+    entry_order=EntryOrder.LIMIT,  # or "limit"
+    # optional: rest below/above the entry reference
+    limit_offset=0.0005,           # long buys at ref*(1-0.0005)
+    # or limit_price=95_000.0,
+)
+```
+
+**Behaviour (Post-Only style):**
+
+| Case | Result |
+|---|---|
+| Limit at reference (default) | Fills when the entry bar touches that price (next open always does) → maker, no slip |
+| Passive `limit_offset` / `limit_price` | Fills at the limit **only if** the entry bar's range touches it; else `SKIP_LIMIT_NOT_FILLED` |
+| Marketable / crossing limit | `SKIP_LIMIT_WOULD_CROSS` (not silently converted to a taker market fill) |
+
+**Proven take-profit maker** (entry still market) without switching the whole sim:
+
+```python
+from tradesim import research_costs, Liquidity
+
+costs = research_costs(take_profit_liquidity=Liquidity.MAKER)
+# or: costs = research_costs().with_role_liquidity(take_profit=Liquidity.MAKER)
+```
+
+### Entry slippage only (market entries)
+
+- `entry_slippage`: project-frozen (typical starting range about 0.02%–0.15%). **Ignored** when `entry_order=LIMIT`.
 - `market_exit_slippage`: used only for **timeout / max-hold / end-of-data** market exits — **not** for TP or SL.
 
 ### Gaps and limit TP/SL

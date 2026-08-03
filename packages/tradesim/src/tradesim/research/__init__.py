@@ -5,14 +5,17 @@ from __future__ import annotations
 from .candles import ensure_candles
 from .defaults import (
     RESEARCH_ENTRY_SLIPPAGE,
+    RESEARCH_MAKER_RATE,
     RESEARCH_REPORTS_DIR,
     RESEARCH_STARTING_EQUITY_USDT,
     RESEARCH_STORE_PATH,
     RESEARCH_TAKER_RATE,
     research_costs,
     research_instrument,
+    research_limit_entry_costs,
     research_margin,
     research_sim,
+    research_sim_limit_entry,
     research_sizing,
     research_starting_equity,
 )
@@ -25,6 +28,7 @@ from .store import BacktestStore, SavedRun, aggregate_run_catalog, persist_resea
 
 __all__ = [
     "RESEARCH_ENTRY_SLIPPAGE",
+    "RESEARCH_MAKER_RATE",
     "RESEARCH_REPORTS_DIR",
     "RESEARCH_STARTING_EQUITY_USDT",
     "RESEARCH_STORE_PATH",
@@ -43,8 +47,10 @@ __all__ = [
     "plot_backtest",
     "research_costs",
     "research_instrument",
+    "research_limit_entry_costs",
     "research_margin",
     "research_sim",
+    "research_sim_limit_entry",
     "research_sizing",
     "research_starting_equity",
     "run_backtest",

@@ -38,6 +38,7 @@ members = [
   "packages/leakage",
   "packages/market_data",
   "packages/live_candles",
+  "packages/indicators",
 ]
 
 [tool.uv.sources]
@@ -45,3 +46,4 @@ tradesim = { workspace = true }
 leakage = { workspace = true }
 market_data = { workspace = true }
 live_candles = { workspace = true }
+indicators = { workspace = true }

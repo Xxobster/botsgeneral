@@ -30,6 +30,14 @@ def bybit_instruments_db() -> Path:
     return candles_root() / "bybit_instruments.sqlite"
 
 
+def indicators_root() -> Path:
+    return trading_data_root() / "indicators"
+
+
+def indicators_db() -> Path:
+    return indicators_root() / "indicators.sqlite"
+
+
 def backtests_root() -> Path:
     return trading_data_root() / "backtests"
 

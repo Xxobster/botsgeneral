@@ -66,6 +66,32 @@ class EntryRef(str, Enum):
     NEXT_CLOSE = "next_close"
 
 
+class EntryOrder(str, Enum):
+    """How the entry fill is worked on the entry reference bar.
+
+    ``MARKET``  cross the book: directional entry slippage + taker fee (default).
+    ``LIMIT``   rest as Post-Only style: fill at the limit when touched, **maker** fee,
+                **no** entry slippage. A marketable (crossing) limit is skipped, not
+                silently converted to a taker fill — that would hide live Post-Only cancels.
+    """
+
+    MARKET = "market"
+    LIMIT = "limit"
+
+    @classmethod
+    def coerce(cls, value: "EntryOrder | str | None") -> "EntryOrder":
+        if value is None:
+            return cls.MARKET
+        if isinstance(value, cls):
+            return value
+        key = str(value).strip().lower()
+        if key in ("market", "taker", "mkt"):
+            return cls.MARKET
+        if key in ("limit", "maker", "post_only", "post-only", "lmt"):
+            return cls.LIMIT
+        raise ValueError(f"unrecognised entry_order {value!r}")
+
+
 class SameBarPolicy(str, Enum):
     """What to do when one bar contains both a favourable and an adverse trigger."""
 
@@ -138,6 +164,8 @@ class SkipReason(str, Enum):
     POSITION_LIMIT = "SKIP_POSITION_LIMIT"
     WALLET_RUINED = "SKIP_WALLET_RUINED"
     NON_DEPLOYABLE_ORDER_GRANULARITY = "NON_DEPLOYABLE_ORDER_GRANULARITY"
+    LIMIT_NOT_FILLED = "SKIP_LIMIT_NOT_FILLED"
+    LIMIT_WOULD_CROSS = "SKIP_LIMIT_WOULD_CROSS"
 
 
 # Exit reason vocabulary. Entry-bar exits carry the ``_entry_bar`` suffix so their
@@ -241,13 +269,37 @@ class InstrumentSpec:
 # --------------------------------------------------------------------------------------
 
 
+def default_role_liquidity(
+    *,
+    entry: Liquidity = Liquidity.TAKER,
+    take_profit: Liquidity = Liquidity.TAKER,
+    stop: Liquidity = Liquidity.TAKER,
+    liquidation: Liquidity = Liquidity.TAKER,
+    timeout: Liquidity = Liquidity.TAKER,
+    trailing: Liquidity = Liquidity.TAKER,
+    break_even: Liquidity = Liquidity.TAKER,
+    end_of_data: Liquidity = Liquidity.TAKER,
+) -> dict[str, Liquidity]:
+    """Per-fill maker/taker map. Conservative research default is taker on every role."""
+    return {
+        FeeRole.ENTRY.value: entry,
+        FeeRole.TAKE_PROFIT.value: take_profit,
+        FeeRole.STOP.value: stop,
+        FeeRole.LIQUIDATION.value: liquidation,
+        FeeRole.TIMEOUT.value: timeout,
+        FeeRole.TRAILING.value: trailing,
+        FeeRole.BREAK_EVEN.value: break_even,
+        FeeRole.END_OF_DATA.value: end_of_data,
+    }
+
+
 @dataclass(frozen=True)
 class CostConfig:
     """Fee and slippage schedule.
 
     Fees are ``qty * executed_price * rate`` per fill (standard section 11.0). Slippage
     moves the fill price and is never folded into a rate. Rates are fractions, not basis
-    points and not percent: Bybit non-VIP taker is ``0.00055``.
+    points and not percent: Bybit non-VIP taker is ``0.00055``, maker ``0.0002``.
     """
 
     taker_rate: float = 0.00055
@@ -259,25 +311,16 @@ class CostConfig:
     # is taker everywhere: a resting take-profit limit only earns the maker rate when
     # maker execution has been evidenced (standard section 11.0 rule 4).
     role_liquidity: Mapping[str, Liquidity] = field(
-        default_factory=lambda: {
-            FeeRole.ENTRY.value: Liquidity.TAKER,
-            FeeRole.TAKE_PROFIT.value: Liquidity.TAKER,
-            FeeRole.STOP.value: Liquidity.TAKER,
-            FeeRole.LIQUIDATION.value: Liquidity.TAKER,
-            FeeRole.TIMEOUT.value: Liquidity.TAKER,
-            FeeRole.TRAILING.value: Liquidity.TAKER,
-            FeeRole.BREAK_EVEN.value: Liquidity.TAKER,
-            FeeRole.END_OF_DATA.value: Liquidity.TAKER,
-        }
+        default_factory=default_role_liquidity
     )
     # Extra fee charged by the venue's liquidation engine, on top of the taker fee.
     liquidation_penalty_rate: float = 0.0
     # Multiplies every slippage term. Frozen stress scenarios move this, not the base.
     slippage_stress_multiplier: float = 1.0
 
-    def rate_for(self, role: FeeRole | str) -> float:
+    def rate_for(self, role: FeeRole | str, liquidity: Liquidity | None = None) -> float:
         key = role.value if isinstance(role, FeeRole) else str(role)
-        liq = self.role_liquidity.get(key, Liquidity.TAKER)
+        liq = self.liquidity_for(role) if liquidity is None else liquidity
         rate = self.maker_rate if liq == Liquidity.MAKER else self.taker_rate
         if key == FeeRole.LIQUIDATION.value:
             rate += self.liquidation_penalty_rate
@@ -286,6 +329,13 @@ class CostConfig:
     def liquidity_for(self, role: FeeRole | str) -> Liquidity:
         key = role.value if isinstance(role, FeeRole) else str(role)
         return self.role_liquidity.get(key, Liquidity.TAKER)
+
+    def with_role_liquidity(self, **roles: Liquidity | str) -> "CostConfig":
+        """Return a copy with selected roles remapped (e.g. ``entry=Liquidity.MAKER``)."""
+        merged = dict(self.role_liquidity)
+        for key, value in roles.items():
+            merged[key] = value if isinstance(value, Liquidity) else Liquidity(str(value))
+        return replace(self, role_liquidity=merged)
 
     @property
     def effective_entry_slippage(self) -> float:
@@ -394,6 +444,8 @@ class SimConfig:
     """Everything about how the simulation runs that is not instrument or cost."""
 
     entry_ref: EntryRef = EntryRef.NEXT_OPEN
+    # Default entry order type. Per-signal ``Signal.entry_order`` overrides this.
+    entry_order: EntryOrder = EntryOrder.MARKET
     latency_bars: int = 0
     same_bar_policy: SameBarPolicy = SameBarPolicy.ADVERSE
     max_hold_bars: int | None = None
@@ -547,12 +599,21 @@ class Signal:
     qty: float | None = None
     notional: float | None = None
     risk_fraction: float | None = None
+    # None → use ``SimConfig.entry_order``. ``LIMIT`` = maker fee, no entry slip.
+    entry_order: EntryOrder | None = None
+    # Absolute limit price, or passive offset from the entry reference (long buys at
+    # ``ref * (1 - offset)``, short sells at ``ref * (1 + offset)``). Both None → limit
+    # at the reference itself (fill when the entry bar touches that price).
+    limit_price: float | None = None
+    limit_offset: float | None = None
     tag: str = ""
     meta: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "side", Side.coerce(self.side))
         object.__setattr__(self, "ts_ms", int(self.ts_ms))
+        if self.entry_order is not None:
+            object.__setattr__(self, "entry_order", EntryOrder.coerce(self.entry_order))
 
 
 # --------------------------------------------------------------------------------------

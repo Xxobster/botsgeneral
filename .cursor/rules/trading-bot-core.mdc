@@ -86,6 +86,34 @@ prefer_botsgeneral_tradesim()  # forces C:\projects\botsgeneral\packages\tradesi
   or `show=False` then draw on `view.extra_axes` — never a private Finplot layout. Details:
   `TRADESIM_BACKTEST_ENGINE_GUIDE.md` § Finplot / Adding custom graphs; also `RULES.md`
   Visualization.
+- **Limit / maker entry:** `research_limit_entry_costs()` + `research_sim_limit_entry()` (or
+  `Signal.entry_order="limit"` + optional `limit_price`/`limit_offset`). Maker fee, no entry
+  slip; Post-Only semantics (crossing → skip). Guide §3.1. Do not use maker to rescue a
+  failing all-taker baseline without evidence.
+
+## indicators — shared Fibonacci price-structure warehouse (Xxobster stack)
+
+Every program that needs swings, higher-high/higher-low structure, Fibonacci retracements,
+leg lengths, or distance to confirmed support/resistance **must** use the shared
+`indicators` package — not a private helper.
+
+- **Source of truth:** `C:\projects\botsgeneral\packages\indicators`
+- **Warehouse:** `D:\projectsdata\indicators\indicators.sqlite`
+- **How-to guide (in this rules package):** `INDICATORS_GUIDE.md`
+- **Before importing:**
+
+```python
+from indicators.ensure_source import prefer_botsgeneral_indicators
+prefer_botsgeneral_indicators()
+```
+
+  Or: `pip install -e C:\projects\botsgeneral\packages\indicators` and verify
+  `indicators.__file__` contains `botsgeneral`.
+- **CLI:** `indicators update-all` (default TF 1h/4h/1d/1w over every candle series;
+  add `15m` or `all` as needed);
+  `indicators update --symbol BTCUSDT --timeframe 1h`; `indicators coverage` / `show`.
+- Programs open the DB and **copy** `bar_features` / `legs` / `levels` / `swings` they need.
+- Still run `leakage` before train/test on any derived columns.
 
 ## leakage — mandatory shared causality gate (Xxobster stack)
 

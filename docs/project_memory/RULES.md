@@ -104,6 +104,24 @@ tradesim-research open --run-id <id>   # report folder + full-period chart/metri
 
   Compare `run_fingerprint` (printed on save) to prove it is the exact same chart/data.
 
+## Indicators (shared Fibonacci price structure)
+
+- **Only** `C:\projects\botsgeneral\packages\indicators` computes confirmed swings,
+  HH/HL/LH/LL structure, leg lengths, Fibonacci retracements, and distance to prior
+  support/resistance. Do not keep a private swing/fib helper.
+- Warehouse: `D:\projectsdata\indicators\indicators.sqlite` (programs open + copy).
+- Candle source: `D:\projectsdata\candles\market_ohlcv.sqlite`.
+- Pin: `prefer_botsgeneral_indicators()` or editable install; refuse non-botsgeneral.
+- Update all pairs/indices/macros already in the candle DB:
+
+```text
+indicators update-all
+indicators update --symbol BTCUSDT --timeframe 1h
+# optional: indicators update-all --timeframes 1h,4h,1d,1w,15m
+```
+
+- Guide: `docs/project_memory/INDICATORS_GUIDE.md` (also in RULES_V2 zip).
+
 ## Code style
 
 - **Vectorized** calculations; avoid Python loops; optimize for speed.
@@ -121,6 +139,13 @@ tradesim-research open --run-id <id>   # report folder + full-period chart/metri
   train/test files are hardening only. Hard-fail columns → `LEAKAGE_POTENTIAL`.
 - Include **Bybit fees** + realistic **slippage** for market entries; limit entries can ignore slippage.
 - Prefer **maker** (reduce fees) live when the strategy allows.
+- **Limit / maker entry in tradesim:** use `research_limit_entry_costs()` +
+  `research_sim_limit_entry()` (or per-signal `entry_order="limit"` with optional
+  `limit_price` / `limit_offset`). Fills at the limit when touched, **maker** fee
+  (Bybit non-VIP **0.02%**), **no** entry slip. Crossing limits are skipped
+  (`SKIP_LIMIT_WOULD_CROSS`), not silently turned into taker markets. Do **not** use
+  maker assumptions to rescue a failing all-taker baseline without fill evidence.
+  Details: `TRADESIM_BACKTEST_ENGINE_GUIDE.md` §3.1.
 - Try multiple / multi timeframes (fractal markets).
 - Both long and short preferred; long-only or short-only OK if reason is clear (bull bias caveat).
 - After BTC/ETH winners: optimize SOL, VET, BNB, XRP, TRX, DOGE, XLM, ADA with **per-coin best params**.

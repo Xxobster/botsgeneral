@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-08-03 — Shared `indicators` package (Fibonacci price structure) + RULES_V2
+
+- New package `packages/indicators`: confirmed swings, HH/HL/LH/LL, leg lengths,
+  Fibonacci retracements/extensions, distance to confirmed S/R.
+- Warehouse: `D:\projectsdata\indicators\indicators.sqlite` (tables: swings,
+  structure_events, legs, levels, bar_features, series).
+- CLI: `indicators update` / `update-all` / `coverage` / `show`; API:
+  `compute_structure`, `update_series`, `update_all`, `IndicatorDB`.
+- Docs: `INDICATORS_GUIDE.md`; RULES + trading-bot-core; rebuilt
+  `TRADING_BOT_CURSOR_RULES_V2.zip`.
+- Tests: 3 passed. `update-all` run over candle warehouse structure TFs.
+
+## 2026-08-03 — Limit entry (maker fee, no slippage) + RULES_V2 zip
+
+- `EntryOrder.LIMIT` / `SimConfig.entry_order` / `Signal.entry_order` (+ `limit_price` /
+  `limit_offset`): Post-Only style fill at limit when touched, **maker** fee, **no**
+  entry slip; crossing → `SKIP_LIMIT_WOULD_CROSS`, miss → `SKIP_LIMIT_NOT_FILLED`.
+- Helpers: `research_limit_entry_costs()`, `research_sim_limit_entry()`; real Bybit
+  `RESEARCH_MAKER_RATE=0.0002` (research costs no longer force maker=taker).
+- Docs: RULES, TRADESIM guide §3.1, trading-bot-core; rebuilt
+  `C:\projects\BASE CURSOR\TRADING_BOT_CURSOR_RULES_V2.zip`.
+- Tests: `tests/test_limit_entry.py` + full suite 135 passed.
+
 ## 2026-08-02 — Finplot extra panes / on_axes hooks + RULES_V2 zip
 
 - `plot_backtest(..., extra_rows=, extra_row_heights=, on_axes=)` returns `PlotView`
