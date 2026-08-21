@@ -12,6 +12,7 @@ import requests
 
 from botsgeneral.discover import load_registry
 from botsgeneral.keys import resolve_accounts
+from botsgeneral.metrics import enrich_open_position, fmt_signed_pct, fmt_ts_utc
 
 log = logging.getLogger(__name__)
 BYBIT = "https://api.bybit.com"
@@ -149,8 +150,13 @@ def account_summary(name: str, creds: dict[str, str]) -> dict[str, Any]:
                         "side": p.get("side"),
                         "size": size,
                         "avgPrice": p.get("avgPrice"),
+                        "markPrice": p.get("markPrice"),
                         "unrealisedPnl": p.get("unrealisedPnl"),
                         "leverage": p.get("leverage"),
+                        "takeProfit": p.get("takeProfit") or None,
+                        "stopLoss": p.get("stopLoss") or None,
+                        "createdTime": p.get("createdTime"),
+                        "updatedTime": p.get("updatedTime"),
                     }
                 )
         out["positions"] = positions
@@ -197,8 +203,17 @@ def print_pnl(report: dict) -> None:
             f"upl={a.get('total_perp_upl')}"
         )
         for p in a.get("positions") or []:
+            p = enrich_open_position(p)
+            opened = fmt_ts_utc(p.get("opened_at_ms"))
+            closer = p.get("closer_exit")
+            closer_s = (
+                f"to_{closer}={fmt_signed_pct(p.get('closer_pct'))}"
+                if closer
+                else "to_TP/SL=-"
+            )
             print(
                 f"    pos {p['symbol']:10} {p['side']:5} size={p['size']} "
-                f"avg={p['avgPrice']} upl={p['unrealisedPnl']} lev={p['leverage']}"
+                f"avg={p['avgPrice']} upl={p['unrealisedPnl']} lev={p['leverage']}  "
+                f"opened={opened}  {closer_s}"
             )
     print(f"\nTOTAL equity={report.get('total_equity')} perp_upl={report.get('total_perp_upl')}")

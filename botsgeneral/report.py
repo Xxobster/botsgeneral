@@ -9,8 +9,23 @@ from typing import Any
 import yaml
 
 from botsgeneral.discover import bot_runtime_status, detect_vps_id, load_registry
+from botsgeneral.discover.process import (
+    list_screens,
+    list_systemd_unit_lines,
+    list_systemd_units,
+    process_cmdline_blob,
+)
 from botsgeneral.keys import resolve_accounts
-from botsgeneral.metrics import fmt_num, fmt_pct, parse_since_ms, trade_metrics
+from botsgeneral.metrics import (
+    enrich_open_position,
+    fmt_num,
+    fmt_pct,
+    fmt_signed_pct,
+    fmt_ts_utc,
+    last_open_event,
+    parse_since_ms,
+    trade_metrics,
+)
 from botsgeneral.pnl import account_summary, bybit_private_get
 from botsgeneral.sitrep import build_sitrep
 
@@ -124,6 +139,37 @@ def _account_bot_map(registry: dict) -> dict[str, list[str]]:
         for a in names:
             canon = canonicalize_account_name(str(a))
             m.setdefault(canon, []).append(bot)
+    return m
+
+
+def _live_account_bot_map(registry: dict, sitrep: dict) -> dict[str, list[str]]:
+    """account -> bots that are running *and* actually using that account."""
+    from botsgeneral.discover import running_accounts_for_bot
+    from botsgeneral.keys import canonicalize_account_name
+
+    screens = list_screens()
+    systemd = list_systemd_units()
+    systemd_lines = list_systemd_unit_lines()
+    proc_blob = process_cmdline_blob()
+    m: dict[str, list[str]] = {}
+    for b in sitrep.get("bots") or []:
+        if not b.get("running"):
+            continue
+        name = str(b.get("bot") or "")
+        bcfg = (registry.get("bots") or {}).get(name) or {}
+        # Prefer already-computed running_accounts from sitrep/bot_runtime_status
+        live = b.get("running_accounts")
+        if live is None:
+            live = running_accounts_for_bot(
+                bcfg,
+                screens=screens,
+                systemd_lines=systemd_lines,
+                proc_blob=proc_blob,
+                running=True,
+            )
+        for a in live or []:
+            canon = canonicalize_account_name(str(a))
+            m.setdefault(canon, []).append(name)
     return m
 
 
@@ -303,27 +349,24 @@ def build_fleet_report(
     registry = load_registry(registry_path)
     vps = vps_id or detect_vps_id(registry)
     accounts = resolve_accounts(keys_path)
-    acct_bots = _account_bot_map(registry)
+    acct_bots_registry = _account_bot_map(registry)
     sitrep = build_sitrep(registry_path=registry_path, vps_id=vps)
 
     running_bots = {b["bot"] for b in (sitrep.get("bots") or []) if b.get("running")}
-    # Accounts for bots that are actually running on this host (supports account: [list])
-    preferred = {
-        a
-        for a, bots in acct_bots.items()
-        if any(b in running_bots for b in bots)
-    }
+    # Only accounts that a *running* bot process/unit actually uses (not every
+    # account listed under a multi-account registry entry).
+    acct_bots = _live_account_bot_map(registry, sitrep)
+    preferred = set(acct_bots.keys())
     # Optional report.yaml accounts: allowlist filter (intersect when both set)
     cfg_accounts = settings.get("accounts") or []
-    if isinstance(cfg_accounts, list) and cfg_accounts:
+    if isinstance(cfg_accounts, list) and cfg_accounts and preferred:
         from botsgeneral.keys import canonicalize_account_name
 
         wanted = {canonicalize_account_name(str(a)) for a in cfg_accounts if a}
-        if preferred:
-            filtered = preferred & wanted
-            preferred = filtered if filtered else preferred
-        else:
-            preferred = wanted
+        # Intersect only — never expand to allowlisted accounts when nothing is running.
+        filtered = preferred & wanted
+        if filtered:
+            preferred = filtered
     use_accounts = {k: v for k, v in accounts.items() if k in preferred}
     missing = sorted(preferred - set(accounts.keys()))
 
@@ -344,7 +387,10 @@ def build_fleet_report(
     for name in sorted(use_accounts.keys()):
         creds = use_accounts[name]
         summary = account_summary(name, creds)
-        bots = [b for b in acct_bots.get(name, []) if b in running_bots]
+        bots = list(acct_bots.get(name) or [])
+        # Keep stable order from registry map when possible
+        reg_order = acct_bots_registry.get(name) or []
+        bots = [b for b in reg_order if b in bots] + [b for b in bots if b not in reg_order]
         summary["bots"] = bots
         live_syms = _running_symbols_for_bots(registry, bots)
         since_by_sym = _since_map_for_bots(settings, bots)
@@ -375,6 +421,7 @@ def build_fleet_report(
             summary["positions"] = [
                 p for p in (summary.get("positions") or []) if (p.get("symbol") or "").upper() in live_syms
             ]
+        summary["positions"] = [enrich_open_position(p) for p in (summary.get("positions") or [])]
         per_coin = []
         for sym in sorted(by_sym.keys()):
             m = trade_metrics(by_sym[sym])
@@ -390,6 +437,7 @@ def build_fleet_report(
         summary["per_coin"] = per_coin
         summary["closed_raw_count"] = len(closed)
         summary["live_symbols"] = sorted(live_syms)
+        summary["last_open"] = last_open_event(summary.get("positions") or [], closed)
         rows.append(summary)
 
     return {
@@ -542,8 +590,10 @@ def print_fleet_report(report: dict[str, Any]) -> None:
             f"realized={fmt_num(m.get('realized_pnl'), 4)}  "
             f"WR={fmt_pct(m.get('winrate'))}  "
             f"PF={fmt_num(m.get('profit_factor'), 3)}  "
-            f"Sharpe(trades)={fmt_num(m.get('sharpe'), 3)}  "
-            f"MaxDD={fmt_num(m.get('max_drawdown'), 4)}"
+            f"RF={fmt_num(m.get('recovery_factor'), 2)}  "
+            f"MaxDD%={fmt_pct(m.get('max_dd_pct'))}  "
+            f"MaxDD={fmt_num(m.get('max_drawdown'), 4)}  "
+            f"Payoff={fmt_num(m.get('payoff'), 2)}"
         )
         if a.get("closed_error"):
             print(f"  closed-pnl ERROR: {a['closed_error']}")
@@ -555,14 +605,31 @@ def print_fleet_report(report: dict[str, Any]) -> None:
                 f"realized={fmt_num(c.get('realized_pnl'), 4):>10}  "
                 f"WR={fmt_pct(c.get('winrate')):>7}  "
                 f"PF={fmt_num(c.get('profit_factor'), 2):>6}  "
-                f"Sharpe={fmt_num(c.get('sharpe'), 2):>6}{since_s}"
+                f"RF={fmt_num(c.get('recovery_factor'), 2):>5}  "
+                f"MaxDD%={fmt_pct(c.get('max_dd_pct')):>7}{since_s}"
             )
         for p in a.get("positions") or []:
+            opened = fmt_ts_utc(p.get("opened_at_ms"))
+            closer = p.get("closer_exit")
+            closer_s = (
+                f"to_{closer}={fmt_signed_pct(p.get('closer_pct'))}"
+                if closer
+                else "to_TP/SL=-"
+            )
             print(
                 f"    OPEN {p.get('symbol'):10} {p.get('side'):5} "
                 f"size={p.get('size')} avg={p.get('avgPrice')} "
-                f"upl={p.get('unrealisedPnl')} lev={p.get('leverage')}"
+                f"upl={p.get('unrealisedPnl')} lev={p.get('leverage')}  "
+                f"opened={opened}  {closer_s}"
             )
+        lo = a.get("last_open")
+        if lo:
+            print(
+                f"    last_open {lo.get('symbol')} @ {fmt_ts_utc(lo.get('ts_ms'))}"
+                + ("" if lo.get("source") == "open" else " (from closed)")
+            )
+        elif not (a.get("positions") or []):
+            print("    last_open -")
 
     print("\n" + "=" * 60)
     print(
@@ -596,17 +663,32 @@ def print_trades_report(report: dict[str, Any]) -> None:
     print(
         f"Closed: n={m.get('n_trades')}  realized={fmt_num(m.get('realized_pnl'), 4)}  "
         f"WR={fmt_pct(m.get('winrate'))}  PF={fmt_num(m.get('profit_factor'), 3)}  "
-        f"Sharpe={fmt_num(m.get('sharpe'), 3)}  Avg={fmt_num(m.get('avg_pnl'), 4)}  "
-        f"MaxDD={fmt_num(m.get('max_drawdown'), 4)}"
+        f"RF={fmt_num(m.get('recovery_factor'), 2)}  MaxDD%={fmt_pct(m.get('max_dd_pct'))}  "
+        f"MaxDD={fmt_num(m.get('max_drawdown'), 4)}  Payoff={fmt_num(m.get('payoff'), 2)}  "
+        f"Avg={fmt_num(m.get('avg_pnl'), 4)}"
     )
     print("\nOpen positions:")
-    poss = report.get("open_positions") or []
+    poss = [enrich_open_position(p) for p in (report.get("open_positions") or [])]
     if not poss:
         print("  (none)")
     for p in poss:
+        opened = fmt_ts_utc(p.get("opened_at_ms"))
+        closer = p.get("closer_exit")
+        closer_s = (
+            f"to_{closer}={fmt_signed_pct(p.get('closer_pct'))}"
+            if closer
+            else "to_TP/SL=-"
+        )
         print(
             f"  {p.get('symbol'):10} {p.get('side'):5} size={p.get('size')} "
-            f"avg={p.get('avgPrice')} upl={p.get('unrealisedPnl')} lev={p.get('leverage')}"
+            f"avg={p.get('avgPrice')} upl={p.get('unrealisedPnl')} lev={p.get('leverage')}  "
+            f"opened={opened}  {closer_s}"
+        )
+    lo = last_open_event(poss, report.get("trades") or [])
+    if lo:
+        print(
+            f"  last_open {lo.get('symbol')} @ {fmt_ts_utc(lo.get('ts_ms'))}"
+            + ("" if lo.get("source") == "open" else " (from closed)")
         )
     print("\nClosed trades (newest first):")
     trades = report.get("trades") or []

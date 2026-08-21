@@ -1,5 +1,157 @@
 # Changelog
 
+## 2026-08-19 — Binance kline WebSocket + running-only demand
+
+- Collector subscribes Binance USD-M klines on WebSocket (closed bars only);
+  last-5 REST remains reconnect gap-fill. Bybit WS unchanged.
+- Discover default is **running bots only**. Static llm2 leftover 1h/4h/1w/1m
+  is not fetched unless a live pack/unit asks. Pivot `--pack` strategy.json
+  is the demand source.
+- Windows `BOTSGENERAL_VPS` default is `local` (live-pack scan for backtests).
+- Do not bump `history_schema` for this change.
+
+## 2026-08-05 — Finplot trade inspect shows LLM prediction (pred_mean)
+
+- `Trade.meta` freezes `Signal.meta` at open (engine → trade); SQLite store
+  persists `meta_json` when saving runs.
+- Click-inspect popup shows primary score keys (`pred_mean`, `p_hat`, `edge`, …)
+  plus size/book context when present.
+- Optional plot overlays: `plot_backtest(predictions={entry_ts_ms: float}, …)` or
+  `trade_annotations` if meta was not on the trade.
+- LLM2 signal builders stamp signed `pred_mean` (+ `abs_mean`) into signal meta
+  for multitrade / single-book / translate paths.
+
+## 2026-08-05 — Finplot entry→exit trade spans
+
+- `tradesim.research.plot`: each position is a solid line from
+  (entry bar, entry price) → (exit bar, exit price); green if
+  realized PnL > 0, red otherwise; circle at entry, cross at exit.
+- Default `trade_style` remains lines/spans; zones still add the hold box.
+- Same-bar exits bump the span one bar so the segment is still visible.
+- Tests: span endpoints + color; same-bar span unit test.
+
+## 2026-08-21 — Fleet report: risk metrics + open detail
+
+- Replace headline `Sharpe(trades)` with **RF** (recovery factor =
+  realized/|MaxDD|), **MaxDD%** (drawdown vs peak closed-PnL equity curve),
+  and **Payoff** (avg win / |avg loss|). Trade Sharpe remains in JSON only —
+  poor live-risk signal for small n / mixed hold times.
+- Open positions: `opened=` UTC time + `to_TP`/`to_SL` % distance to the
+  nearer exit (Bybit `takeProfit`/`stopLoss` vs mark).
+- Under opens: `last_open SYMBOL @ timestamp` (live open preferred, else
+  latest closed entry).
+- Bybit position fetch now includes mark/TP/SL/createdTime.
+
+## 2026-08-05 — Collector always-on (enable + ensure timer)
+
+- Service: `StartLimitIntervalSec=0` so crash-loop never stops restarts;
+  `Restart=always` kept.
+- Timer every 2 min: `botsgeneral-collector-ensure.timer` re-enables and
+  starts the host collector if someone stopped/disabled it.
+- Install: `bash deploy/install_collector_always_on.sh <VPS_IP>` on each host.
+
+## 2026-08-05 — Purge unused shared series; register LLM2 on VPS 94
+
+- Registry: VPS `94.156.189.76` bots include `llm2` (primary live fleet was already
+  there; collector had only been serving tsm-vpa, leaving Binance stale).
+- CLI: `botsgeneral purge-unused-candles` (+ `--dry-run`) keeps only discovered
+  series so leftover Binance/Bybit rows cannot diverge calculations.
+- CLI: `botsgeneral prune-incomplete-tips` — delete still-forming tip bars (collector
+  also prunes after every upsert/poll). Fixes stale mid-week 1w leftovers.
+- Goal remains closed-bar OHLC identity with `market_ohlcv` (schemas stay separate).
+- Purged leftovers on 94/212/185; sample OHLC history checks green for served Binance.
+
+## 2026-08-05 — Shared Binance candles baked onto market_ohlcv fetcher
+
+- Live collector `botsgeneral.fetch.binance_rest` calls
+  `market_data.fetch_binance.fetch_klines(..., price_type=last)` — one download
+  path for research warehouse and `shared_candles.db` (schemas stay separate).
+- Closed-bar + junk policy shared (`drop_incomplete_bars` / `drop_junk_bars`);
+  forming tip never written. Bybit REST also drops incomplete tip.
+- CLI gate: `botsgeneral compare-closed-bars` (shared tip OHLC vs warehouse tip).
+- `history_schema` → `"6"` to force re-backfill after bake on all VPS collectors.
+- Deployed to collectors `@94` / `@212` / `@185` (active). VPS 185 LLM2 Binance
+  tips (BTC/ETH/SOL × 1h/4h/1w) closed-bar OHLC-identical to live fapi Last
+  (= `market_ohlcv` tip after heal). VPS 212 news `binance:BTCUSDT:4h` tip OK.
+
+## 2026-08-05 — VPS 185: LLM2 Binance structure candles
+
+- Registry: VPS `185.203.119.52` bots = `[llm2]` (`serve_candles: true`, Binance
+  futures Last; BTC/ETH/SOL @ 1h + `also_fetch` 4h/1w). Path `/home/llm2`.
+- `history_schema` bumped to `"5"` to force full backfill on collector start.
+- Collector `botsgeneral-collector@185.203.119.52` **enabled/active**; discovered
+  9 pairs; bootstrap complete (e.g. BTC 1h ~60k bars).
+- Docs: SHARED_CANDLES_READER + VPS map for LLM2 (replaces empty-bot LD-only note).
+
+## 2026-08-05 — Yahoo tech equity daily panel (frozen NDX-style)
+
+- `YAHOO_TECH_EQUITY` universe (~100 names + QQQ), frozen 2026-08-03 — survivors bias;
+  RESEARCH_PROXY via Yahoo free daily history (not CRSP point-in-time).
+- CLI: `python -m market_data.download_all --only yahoo_tech --timeframes 1d`
+  (alias `tech_equity`); also included under `--only yahoo`.
+- Symbols filter: `--symbols AAPL,MSFT,NVDA`. Default equity TF: **1d**.
+- Index helper: `NDX100` → `^NDX` (legacy `NDX` remains `^IXIC` composite).
+- Rows: `source=yahoo`, `product=equity` in `market_ohlcv.sqlite`.
+
+## 2026-08-05 — Finplot click-to-inspect (default tidy chart)
+
+- `trade_labels="none"` (default): no piled outcome tags on the chart.
+- Left-click an **entry candle** opens a small trade detail panel (side, reason,
+  hold, qty, prices, pnl, fees); empty bars open full metrics. Reuses one dialog
+  per key (`trade_inspect` / `metrics`).
+- `trade_labels="on_chart"` restores the previous piled tags.
+
+## 2026-08-04 — Metrics: exit counts TP / SL / other
+
+- Headline + stats: `n_exits_tp`, `n_exits_sl`, `n_exits_other` (entry-bar suffix
+  stripped; stop/trailing/break-even = SL; target = TP; rest = other) plus per-reason
+  `exit_reason_counts`.
+
+## 2026-08-04 — Chart labels readable + simultaneous open metrics
+
+- Finplot: floored row step (no smudge), entry-bar piles, collapse dense clusters
+  to `+N more entries`, cap outcome tags, constant TP/SL % only in metrics
+  (mixed % once per unique level).
+- Metrics: max/avg simultaneous open trades, total and long/short (time-weighted);
+  headline + `as_backtesting_stats`.
+
+## 2026-08-04 — Finplot: piled entry-bar tags; constant TP/SL % only in metrics
+
+- Outcome lines (side / reason / hold / qty / pnl) start at the **entry bar** and
+  pile upward (wins) or downward (losses) with pixel row spacing that reflows on zoom.
+- When every trade uses the same take-profit / stop-loss %, those % tags are **not**
+  drawn on the chart (lines/boxes still drawn); shown once in the metrics window.
+- Mixed TP/SL % still labels each level, side-aware (long TP above, SL below, short
+  mirrored).
+
+## 2026-08-04 — Finplot labels: side-aware TP/SL + zoom-adaptive stack
+
+- Take-profit / stop-loss tags sit on the level: long TP above, long SL below;
+  short TP below, short SL above (pyqtgraph text anchors, not win/loss offset).
+- `AdaptiveLabelBoard` packs overlapping labels in **pixel** space and re-layouts on
+  view range changes so zoom keeps rows tight but readable.
+- Outcome tags still green/red; wins stack up, losses down; levels pack first.
+- Tests: `tests/test_plot_finplot.py`.
+
+## 2026-08-03 — Research open interest warehouse (`market_oi.sqlite`)
+
+- New OI downloader in `market_data`: Binance Vision daily metrics (5m, multi-year) +
+  REST tip (`openInterestHist`), Bybit V5 `/market/open-interest` with cursor pagination.
+- DB: `D:\projectsdata\candles\market_oi.sqlite`, PK `(exchange, symbol, timeframe, ts_ms)`.
+- Fields: `oi` (base-asset; Bybit=`singleOpenInterest`), `oi_usd`, `oi_sum` (Bybit both-sides),
+  plus Binance long/short ratio columns from Vision metrics.
+- CLI: `python -m market_data.download_oi` / `botsgeneral research-oi`
+  (`--all` discovers all USDT linear perps; majors get full history, others tip/1d).
+- Tests: `packages/market_data/tests/test_oi.py` (4 passed).
+
+## 2026-08-03 — Hedge mode (long + short together) + RULES_V2
+
+- `PositionMode.HEDGE` / `research_sim_hedge()`: one long and one short may be open on the
+  same symbol at once, each with its own take-profit and stop-loss.
+- One-way default unchanged (second signal → `SKIP_POSITION_LIMIT`).
+- Docs: guide §3.2, RULES, trading-bot-core; rebuilt RULES_V2 zip.
+- Tests: `tests/test_hedge_mode.py` (4); full suite 139 passed.
+
 ## 2026-08-03 — Shared `indicators` package (Fibonacci price structure) + RULES_V2
 
 - New package `packages/indicators`: confirmed swings, HH/HL/LH/LL, leg lengths,
