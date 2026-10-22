@@ -1,0 +1,13 @@
+[Unit]
+Description=Fill holes inside botsgeneral shared candle series (never deletes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/botsgeneral
+Environment=PYTHONPATH=/opt/botsgeneral
+Environment=SHARED_CANDLES_DB=/var/lib/botsgeneral/shared_candles.db
+ExecStart=/opt/botsgeneral/venv/bin/python -u scripts/candle_gap_repair.py --apply
+TimeoutStartSec=900
+Nice=10

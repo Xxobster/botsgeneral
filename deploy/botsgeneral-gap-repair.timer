@@ -1,0 +1,12 @@
+[Unit]
+Description=Every 15 min: find and fill holes in shared candle series
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Persistent=true
+Unit=botsgeneral-gap-repair.service
+
+[Install]
+WantedBy=timers.target
