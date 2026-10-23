@@ -70,7 +70,8 @@ YAHOO: tuple[YahooInstrument, ...] = (
     # Cross-asset / LLM macros
     YahooInstrument("VIX", "^VIX", "CBOE volatility index"),
     YahooInstrument("SPX", "^GSPC", "S&P 500"),
-    YahooInstrument("NDX", "^IXIC", "Nasdaq Composite"),
+    YahooInstrument("NDX", "^IXIC", "Nasdaq Composite (legacy symbol name)"),
+    YahooInstrument("NDX100", "^NDX", "Nasdaq-100 index"),
     YahooInstrument("DJI", "^DJI", "Dow Jones Industrial Average"),
     # Yield cross-checks (canonical daily yields live under FRED US02Y/US10Y/…)
     YahooInstrument("TNX", "^TNX", "CBOE 10Y Treasury yield (Yahoo)"),
@@ -78,6 +79,138 @@ YAHOO: tuple[YahooInstrument, ...] = (
     YahooInstrument("TYX", "^TYX", "CBOE 30Y Treasury yield (Yahoo)"),
     YahooInstrument("IRX", "^IRX", "CBOE 13-week T-bill yield (Yahoo)"),
 )
+
+
+# ---------------------------------------------------------------------------
+# Tech equity panel (Yahoo daily) — RESEARCH_PROXY, survivorship-biased
+# ---------------------------------------------------------------------------
+# Frozen public Nasdaq-100 constellation looked backward through Yahoo.
+# Not CRSP point-in-time membership; delisted names absent. Use for research only.
+YAHOO_TECH_FROZEN_AS_OF = "2026-08-03"
+
+# Canonical tickers (Yahoo same as display). QQQ is the liquid NDX ETF wrapper.
+_YAHOO_TECH_TICKERS: tuple[str, ...] = (
+    # ETF + mega-cap
+    "QQQ",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "META",
+    "AVGO",
+    "GOOGL",
+    "GOOG",
+    "TSLA",
+    "COST",
+    "NFLX",
+    "AMD",
+    "PEP",
+    "ADBE",
+    "CSCO",
+    "TMUS",
+    "LIN",
+    "TXN",
+    "QCOM",
+    "INTU",
+    "AMGN",
+    "ISRG",
+    "AMAT",
+    "HON",
+    "BKNG",
+    "VRTX",
+    "ADP",
+    "SBUX",
+    "GILD",
+    "ADI",
+    "MU",
+    "LRCX",
+    "CMCSA",
+    "PANW",
+    "REGN",
+    "MELI",
+    "KLAC",
+    "SNPS",
+    "CDNS",
+    "CRWD",
+    "ASML",
+    "PYPL",
+    "MAR",
+    "CTAS",
+    "ORLY",
+    "ADSK",
+    "ABNB",
+    "NXPI",
+    "PCAR",
+    "ROP",
+    "WDAY",
+    "CPRT",
+    "PAYX",
+    "MRVL",
+    "ROST",
+    "AEP",
+    "FTNT",
+    "MCHP",
+    "KDP",
+    "DASH",
+    "AZN",
+    "FAST",
+    "IDXX",
+    "EA",
+    "VRSK",
+    "BKR",
+    "EXC",
+    "CTSH",
+    "GEHC",
+    "XEL",
+    "CSGP",
+    "LULU",
+    "CCEP",
+    "TEAM",
+    "INTC",
+    "ON",
+    "DDOG",
+    "ZS",
+    "TTD",
+    "CDW",
+    "FANG",
+    "BIIB",
+    "GFS",
+    "MDB",
+    "WBD",
+    "ILMN",
+    "DXCM",
+    "KHC",
+    "CSX",
+    "ODFL",
+    "TTWO",
+    "MNST",
+    "CHTR",
+    "PDD",
+    "ARM",
+    "SMCI",
+    "PLTR",
+    "APP",
+    "CEG",
+    "SHOP",
+)
+
+YAHOO_TECH_EQUITY: tuple[YahooInstrument, ...] = tuple(
+    YahooInstrument(
+        t,
+        t,
+        f"equity daily RESEARCH_PROXY; frozen NDX-style universe {YAHOO_TECH_FROZEN_AS_OF}",
+    )
+    for t in _YAHOO_TECH_TICKERS
+)
+YAHOO_TECH_SYMBOLS: frozenset[str] = frozenset(_YAHOO_TECH_TICKERS)
+
+# Default TFs for tech equities (Yahoo free bulk only honestly multi-decade at 1d)
+YAHOO_TECH_TIMEFRAMES: tuple[str, ...] = ("1d",)
+
+
+def all_yahoo_instruments() -> tuple[YahooInstrument, ...]:
+    """Macro/index instruments + frozen tech equity panel."""
+    return YAHOO + YAHOO_TECH_EQUITY
 
 
 @dataclass(frozen=True)

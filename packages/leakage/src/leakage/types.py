@@ -20,6 +20,12 @@ class CheckId(str, Enum):
     FORWARD_CORR = "FORWARD_CORR"
     NAME_SCAN = "NAME_SCAN"
     TRAIN_TEST_SPLIT = "TRAIN_TEST_SPLIT"
+    # Builder ignores its OHLCV argument (warehouse / external cache). Bound as
+    # conformance id CAUS-WAREHOUSE-001 — a missing binding must fail the build.
+    BUILDER_RESPONSIVENESS = "BUILDER_RESPONSIVENESS"
+    FORWARD_SHIFT_SCAN = "FORWARD_SHIFT_SCAN"
+    STREAMING_BATCH = "STREAMING_BATCH"
+    DECISIVE_CHECKS_REQUIRED = "DECISIVE_CHECKS_REQUIRED"
 
 
 class ColumnStatus(str, Enum):

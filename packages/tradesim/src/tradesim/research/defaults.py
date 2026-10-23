@@ -78,6 +78,26 @@ def research_sim(*, starting_equity: float = RESEARCH_STARTING_EQUITY_USDT, **kw
     )
 
 
+def research_sim_hedge(
+    *, starting_equity: float = RESEARCH_STARTING_EQUITY_USDT, **kw
+) -> SimConfig:
+    """Long and short may be open together on the same symbol (Bybit hedge mode).
+
+    Each side keeps its own take-profit and stop-loss. Default: one long + one short.
+    Override ``max_positions_per_side`` to allow more per book.
+    """
+    from ..contracts import PositionMode
+
+    return research_sim(
+        starting_equity=float(starting_equity),
+        position_mode=PositionMode.HEDGE,
+        allow_concurrent_positions=True,
+        max_positions_per_symbol=max(2, int(kw.pop("max_positions_per_symbol", 2))),
+        max_positions_per_side=max(1, int(kw.pop("max_positions_per_side", 1))),
+        **kw,
+    )
+
+
 def research_costs(
     *,
     entry_slippage: float = RESEARCH_ENTRY_SLIPPAGE,
@@ -143,6 +163,27 @@ def research_sim_limit_entry(
 def research_sizing() -> SizingConfig:
     """Smallest venue-legal quantity. Strategies should leave ``Signal.qty`` unset."""
     return SizingConfig(mode=SizingMode.MIN_EXCHANGE)
+
+
+def research_sizing_equity_leverage(
+    *,
+    equity_fraction: float = 0.01,
+    compound: bool = True,
+    max_risk_fraction: float | None = None,
+) -> SizingConfig:
+    """Wallet-linked size: ``notional = equity × equity_fraction × leverage``.
+
+    Headline **wallet %** is valid under this mode (positions scale with equity when
+    ``compound=True``). Pair with :func:`research_margin` so leverage is explicit.
+    Default ``equity_fraction=0.01`` (1% of equity as initial-margin fraction →
+    notional is that margin times leverage).
+    """
+    return SizingConfig(
+        mode=SizingMode.EQUITY_LEVERAGE_NOTIONAL,
+        equity_fraction=float(equity_fraction),
+        compound=bool(compound),
+        max_risk_fraction=max_risk_fraction,
+    )
 
 
 def research_margin(*, leverage: float = 1.0) -> MarginConfig:

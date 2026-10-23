@@ -8,8 +8,21 @@ old results unreproducible. Strategies must install ``tradesim`` into their venv
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Any
+
+
+def default_botsgeneral_tradesim_root() -> Path:
+    """Windows research root or Linux VPS /opt/botsgeneral install."""
+    env = (os.environ.get("TRADESIM_REQUIRE_UNDER") or "").strip()
+    # On POSIX, ignore a Windows drive path (often inherited from research shells).
+    if env and not (os.name != "nt" and (":\\" in env or env[:2].upper() == "C:")):
+        return Path(env)
+    linux = Path("/opt/botsgeneral/packages/tradesim")
+    if linux.is_dir():
+        return linux
+    return Path(r"C:\projects\botsgeneral\packages\tradesim")
 
 
 def tradesim_package_dir() -> Path:
@@ -77,9 +90,7 @@ def assert_engine_version(
 # Back-compat aliases used by older strategy bootstraps.
 def prefer_botsgeneral_tradesim(*_a, **_k) -> Path:
     """Deprecated: use editable install + assert_engine_version()."""
-    info = assert_engine_version(
-        require_under=Path(r"C:\projects\botsgeneral\packages\tradesim")
-    )
+    info = assert_engine_version(require_under=default_botsgeneral_tradesim_root())
     return Path(info["package_dir"])
 
 
@@ -92,9 +103,7 @@ def ensure_latest_tradesim(*, update: bool = False, **_k) -> dict[str, Any]:
     if update:
         # Explicit no-op with a clear message for callers still passing update=True.
         pass
-    return assert_engine_version(
-        require_under=Path(r"C:\projects\botsgeneral\packages\tradesim")
-    )
+    return assert_engine_version(require_under=default_botsgeneral_tradesim_root())
 
 
 def main(argv: list[str] | None = None) -> int:

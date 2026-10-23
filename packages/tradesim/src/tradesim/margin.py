@@ -158,7 +158,17 @@ def build_margin_state(
     )
 
     if liq is None:
-        status = LiquidationStatus.UNKNOWN
+        # A solved "cannot be liquidated by price alone" outcome (typical at 1× with
+        # full notional posted) is not a modelling gap when maintenance tiers exist.
+        # Gate A only treats UNKNOWN as critical; SIMPLIFIED/MODELLED remain quotable.
+        if spec.tiers_available:
+            status = (
+                LiquidationStatus.MODELLED
+                if has_mark_series
+                else LiquidationStatus.SIMPLIFIED
+            )
+        else:
+            status = LiquidationStatus.UNKNOWN
     elif spec.tiers_available and has_mark_series:
         status = LiquidationStatus.MODELLED
     else:

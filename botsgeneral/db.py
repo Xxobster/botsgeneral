@@ -161,6 +161,85 @@ class CandleDB:
         ).fetchone()
         return int(row[0] if row else 0)
 
+    def list_series(self) -> list[tuple[str, str, str, int]]:
+        rows = self._conn.execute(
+            """
+            SELECT exchange, symbol, timeframe, COUNT(*)
+            FROM candles
+            GROUP BY exchange, symbol, timeframe
+            ORDER BY exchange, symbol, timeframe
+            """
+        ).fetchall()
+        return [(str(r[0]), str(r[1]), str(r[2]), int(r[3])) for r in rows]
+
+    def delete_incomplete_tips(self, pairs: Iterable[CandlePair] | None = None) -> int:
+        """Remove still-forming tip bars (open + tf duration > now). Returns rows deleted."""
+        now = int(time.time() * 1000)
+        if pairs is None:
+            series = [(e, s, t) for e, s, t, _n in self.list_series()]
+        else:
+            series = [(p.exchange, p.symbol, p.timeframe) for p in pairs]
+        deleted = 0
+        for ex, sym, tf in series:
+            step = TF_MS.get(tf)
+            if not step:
+                continue
+            # Keep only bars whose close time is strictly in the past
+            cur = self._conn.execute(
+                """
+                DELETE FROM candles
+                WHERE exchange=? AND symbol=? AND timeframe=?
+                  AND (ts_ms + ?) > ?
+                """,
+                (ex, sym, tf, int(step), now),
+            )
+            deleted += int(cur.rowcount or 0)
+        self._conn.commit()
+        return deleted
+
+    def delete_timeframe(self, timeframe: str, *, vacuum: bool = True) -> dict:
+        """Drop every series on this timeframe (e.g. leftover 1m). Frees disk if vacuum."""
+        tf = str(timeframe).strip()
+        rows = self._conn.execute(
+            "SELECT exchange, symbol, COUNT(*) FROM candles WHERE timeframe=? "
+            "GROUP BY exchange, symbol",
+            (tf,),
+        ).fetchall()
+        cur = self._conn.execute("DELETE FROM candles WHERE timeframe=?", (tf,))
+        deleted = int(cur.rowcount or 0)
+        self._conn.commit()
+        if vacuum:
+            self._conn.execute("VACUUM")
+        return {
+            "timeframe": tf,
+            "deleted_bars": deleted,
+            "series": [
+                {"exchange": r[0], "symbol": r[1], "bars": int(r[2])} for r in rows
+            ],
+        }
+
+    def delete_series_except(self, keep: set[tuple[str, str, str]]) -> dict:
+        """Delete candle series not in keep={(exchange,symbol,timeframe)}. Returns purge stats."""
+        before = self.list_series()
+        removed: list[tuple[str, str, str, int]] = []
+        for ex, sym, tf, n in before:
+            key = (ex, sym, tf)
+            if key in keep:
+                continue
+            self._conn.execute(
+                "DELETE FROM candles WHERE exchange=? AND symbol=? AND timeframe=?",
+                (ex, sym, tf),
+            )
+            removed.append((ex, sym, tf, n))
+        self._conn.commit()
+        self._conn.execute("VACUUM")
+        return {
+            "kept": sorted(keep),
+            "removed": [{"exchange": e, "symbol": s, "timeframe": t, "bars": n} for e, s, t, n in removed],
+            "removed_series": len(removed),
+            "removed_bars": sum(n for *_, n in removed),
+        }
+
     def freshness_report(self) -> list[dict]:
         rows = self._conn.execute(
             """

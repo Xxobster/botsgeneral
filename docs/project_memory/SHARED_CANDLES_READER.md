@@ -29,19 +29,24 @@ Table `candles`:
 
 Writer behaviour: insert new bars; on same key, overwrite **only if** OHLCV/aux differ (exchange corrections). History is never wiped.
 
-## VPS 185.203.119.52 (LD fleet)
+## VPS 94.156.189.76 + 185.203.119.52 (LLM2 live)
 
-One collector serves all account groups (Xxobster9 / 10 / 11) that trade the same pairs:
+Collectors serve Binance USD-M futures Last for structure / signal candles
+(orders remain on Bybit). Registry bot: `llm2` on both hosts (primary fleet on 94;
+additional packs on 185).
 
-| exchange | symbols | timeframe |
+| exchange | symbols | timeframes |
 |---|---|---|
-| `binance` | `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `BNBUSDT` | `1h` |
+| `binance` | `BTCUSDT`, `ETHUSDT`, `SOLUSDT` | `1h`, `4h`, `1w` |
+
+Unused leftover series are purged with `botsgeneral purge-unused-candles`.
 
 Note: shared `binance` rows are **USD-M futures Last** (`fapi.binance.com`), which is the same
-series as research warehouse `market_ohlcv.source='binance'` (not Binance spot). LD’s old live
-path used spot (`api.binance.com`) — that was the mismatch vs train/test; live should keep
-reading shared futures to stay aligned with the packs’ research history. Target trading venue
-remains Bybit → overall evidence class is still `RESEARCH_PROXY` until native Bybit OHLCV is used.
+series as research warehouse `market_ohlcv.source='binance'` (not Binance spot). The collector
+writes via `market_data.fetch_binance.fetch_klines` (closed bars only; flat/volume-0 junk
+dropped). Gate tip identity with `botsgeneral compare-closed-bars`. Target trading venue
+remains Bybit → overall evidence class is still `RESEARCH_PROXY` until native Bybit OHLCV
+is used for signals.
 
 ## Python helper (preferred)
 

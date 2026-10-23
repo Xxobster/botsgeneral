@@ -102,6 +102,12 @@ def is_fresh(
     max_lag_bars: float = 2.0,
     now_ms: int | None = None,
 ) -> bool:
+    """True when the latest fully closed bar open-time is present.
+
+    Matches ``candles_fresh`` semantics: require ``last >= expected_closed_open``,
+    then allow the series to remain "fresh" for ``max_lag_bars`` intervals after
+    that bar's close.
+    """
     tf = normalize_timeframe(timeframe)
     tf_ms = int(TF_MS.get(tf) or 0)
     if tf_ms <= 0:
@@ -110,5 +116,8 @@ def is_fresh(
     if last is None:
         return False
     now = int(now_ms if now_ms is not None else time.time() * 1000)
+    expected = (now // tf_ms) * tf_ms - tf_ms
+    if last < expected:
+        return False
     age_after_close = now - (last + tf_ms)
     return age_after_close <= max_lag_bars * tf_ms

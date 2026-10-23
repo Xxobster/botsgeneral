@@ -53,6 +53,7 @@ from .contracts import (
     Liquidity,
     MarginConfig,
     MarginMode,
+    PositionMode,
     SameBarPolicy,
     Side,
     Signal,
@@ -74,6 +75,7 @@ from .exits import (
 )
 from .fees import (
     apply_entry_slippage,
+    first_limit_touch_ts_ms,
     limit_entry_touched,
     limit_entry_would_cross,
     price_fill,
@@ -220,6 +222,8 @@ class _Position:
     tag: str = ""
     # Frozen copy of the take-profit ladder at open (labels survive as legs fill).
     planned_tp: tuple[tuple[str, float, float], ...] = ()
+    # Snapshot of Signal.meta at open (prediction, size_mult, book, …) for reports/plot.
+    meta: dict = field(default_factory=dict)
 
     @property
     def entry_notional(self) -> float:
@@ -503,24 +507,66 @@ class _Engine:
     # -- entries ---------------------------------------------------------------------
 
     def _fill_entries(self, rt: _SymbolRuntime, i: int, bar: Bar) -> list[_Position]:
-        scheduled = rt.exec_index.get(i, [])
+        scheduled = list(rt.exec_index.get(i, []))
+        # Deterministic when long+short fire on the same bar: longs first, then shorts,
+        # then by decision index so repeated sides stay stable.
+        scheduled.sort(
+            key=lambda item: (
+                0 if int(item[0].side) > 0 else 1,
+                int(item[1]),
+                int(item[0].ts_ms),
+            )
+        )
         opened: list[_Position] = []
         for signal, decision_idx in scheduled:
             if self._ruined and not self.sim.allow_trading_after_ruin:
                 self._skip(signal, SkipReason.WALLET_RUINED, "wallet is ruined")
                 continue
-            if len(rt.positions) >= max(1, self.sim.max_positions_per_symbol):
-                self._skip(
-                    signal,
-                    SkipReason.POSITION_LIMIT,
-                    f"{len(rt.positions)} position(s) already open on {signal.symbol}",
-                )
+            blocked = self._position_limit_reason(rt, signal)
+            if blocked is not None:
+                self._skip(signal, SkipReason.POSITION_LIMIT, blocked)
                 continue
             pos = self._open_position(rt, signal, decision_idx, i, bar)
             if pos is not None:
                 rt.positions.append(pos)
                 opened.append(pos)
         return opened
+
+    def _is_hedge_mode(self) -> bool:
+        mode = PositionMode.coerce(getattr(self.sim, "position_mode", PositionMode.ONE_WAY))
+        return mode == PositionMode.HEDGE
+
+    def _position_limit_reason(self, rt: _SymbolRuntime, signal: Signal) -> str | None:
+        """Return a skip detail if this signal cannot open, else None."""
+        open_pos = rt.positions
+        if self._is_hedge_mode():
+            # Independent long and short books — each side has its own TP/SL.
+            side = int(signal.side)
+            same_side = sum(1 for p in open_pos if int(p.side) == side)
+            cap = max(1, int(self.sim.max_positions_per_side))
+            if same_side >= cap:
+                label = "long" if side > 0 else "short"
+                return (
+                    f"hedge mode: already {same_side} open {label} position(s) "
+                    f"(max_positions_per_side={cap})"
+                )
+            return None
+
+        # One-way / netting.
+        if not self.sim.allow_concurrent_positions:
+            if open_pos:
+                return (
+                    f"{len(open_pos)} position(s) already open on {signal.symbol} "
+                    "(one-way mode; set position_mode='hedge' for long+short)"
+                )
+            return None
+        limit = max(1, int(self.sim.max_positions_per_symbol))
+        if len(open_pos) >= limit:
+            return (
+                f"{len(open_pos)} position(s) already open on {signal.symbol} "
+                f"(max_positions_per_symbol={limit})"
+            )
+        return None
 
     def _open_position(
         self, rt: _SymbolRuntime, signal: Signal, decision_idx: int, i: int, bar: Bar
@@ -580,6 +626,28 @@ class _Engine:
             # Resting limit: fill at the limit, maker fee, no entry slippage.
             fill_price = limit_px
             entry_liquidity = Liquidity.MAKER
+            # EXEC-021: with lower-timeframe data, the fill clock is the first sub-bar
+            # that touches the limit — not the decision-bar open. Take-profit/stop then
+            # see only the path after that timestamp (``funding_from_ms`` → touch slice).
+            tb = rt.stream.touch_bars
+            if tb is not None:
+                fill_ts = first_limit_touch_ts_ms(
+                    side=signal.side,
+                    limit_price=limit_px,
+                    ts_ms=tb.ts_ms,
+                    high=tb.high,
+                    low=tb.low,
+                    window_start_ms=int(bar.ts_ms),
+                    window_end_ms=int(bar.end_ts_ms),
+                )
+                if fill_ts is None:
+                    self._skip(
+                        signal,
+                        SkipReason.LIMIT_NOT_FILLED,
+                        f"lower-timeframe path did not touch limit {limit_px}",
+                    )
+                    return None
+                funding_from = int(fill_ts)
         else:
             fill_price = apply_entry_slippage(ref, signal.side, self.costs, spec.tick_size)
         if fill_price <= 0:
@@ -603,6 +671,23 @@ class _Engine:
             return None
 
         equity = self._equity()
+        size_mult = 1.0
+        if signal.meta:
+            try:
+                size_mult = float(signal.meta.get("size_mult", 1.0) or 1.0)
+            except (TypeError, ValueError):
+                size_mult = 1.0
+        # Prefer explicit margin leverage when set; else derive from stop (same as margin build).
+        lev_for_size = self.margin.leverage
+        if lev_for_size is None and stop_price is not None and fill_price > 0:
+            from .margin import leverage_from_stop
+
+            try:
+                lev_for_size = leverage_from_stop(
+                    fill_price, float(stop_price), self.margin, spec
+                )
+            except Exception:  # noqa: BLE001
+                lev_for_size = 1.0
         try:
             raw_qty, _unit = desired_qty(
                 cfg=self.sizing,
@@ -613,6 +698,8 @@ class _Engine:
                 signal_notional=signal.notional,
                 signal_risk_fraction=signal.risk_fraction,
                 spec=spec,
+                leverage=float(lev_for_size) if lev_for_size is not None else None,
+                size_mult=size_mult,
             )
         except ValueError as exc:
             self._skip(signal, SkipReason.INVALID_STOP_GEOMETRY, str(exc))
@@ -770,6 +857,7 @@ class _Engine:
             planned_tp=tuple(
                 (str(t.label), float(t.price), float(t.qty_fraction)) for t in (legs or ())
             ),
+            meta=dict(signal.meta) if signal.meta else {},
         )
 
     def _resolve_level(
@@ -890,6 +978,8 @@ class _Engine:
         start = max(int(bar.ts_ms), int(since_ms))
         if start >= int(bar.end_ts_ms):
             return []
+        # A resting-limit fill mid-bar sets ``since_ms`` to that sub-bar. Completeness is
+        # required from the fill onward, not from the decision-bar open.
         lo = int(np.searchsorted(rt.touch_starts, start, side="left"))
         hi = int(np.searchsorted(rt.touch_starts, bar.end_ts_ms, side="left"))
         subs = [tb.bar(k) for k in range(lo, hi)]
@@ -1106,6 +1196,7 @@ class _Engine:
                 tag=pos.tag,
                 legs=tuple(pos.legs),
                 tp_levels=tuple(pos.planned_tp),
+                meta=dict(pos.meta) if pos.meta else {},
             )
         )
         rt.positions.remove(pos)

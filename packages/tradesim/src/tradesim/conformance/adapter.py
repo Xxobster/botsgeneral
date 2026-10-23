@@ -334,6 +334,10 @@ def _build_from_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         from ..contracts import EntryOrder
 
         sim_raw["entry_order"] = EntryOrder.coerce(sim_raw["entry_order"])
+    if "position_mode" in sim_raw and sim_raw["position_mode"] is not None:
+        from ..contracts import PositionMode
+
+        sim_raw["position_mode"] = PositionMode.coerce(sim_raw["position_mode"])
     sim_raw["same_bar_policy"] = SameBarPolicy(sim_raw.get("same_bar_policy", "adverse"))
     sim = SimConfig(**sim_raw)
 

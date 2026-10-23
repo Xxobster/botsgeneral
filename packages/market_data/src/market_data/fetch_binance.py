@@ -28,6 +28,21 @@ BINANCE_INTERVAL = {
     "1w": "1w",
 }
 
+TF_MS = {
+    "1m": 60_000,
+    "3m": 180_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "30m": 1_800_000,
+    "1h": 3_600_000,
+    "2h": 7_200_000,
+    "4h": 14_400_000,
+    "6h": 21_600_000,
+    "12h": 43_200_000,
+    "1d": 86_400_000,
+    "1w": 604_800_000,
+}
+
 ENDPOINTS = {
     "binance": {
         "last": "https://fapi.binance.com/fapi/v1/klines",
@@ -38,6 +53,9 @@ ENDPOINTS = {
         # spot has no mark price klines
     },
 }
+
+OHLCV_COLS = ["ts_ms", "open", "high", "low", "close", "volume"]
+AUX_COLS = ["quote_volume", "trades", "taker_buy_base", "taker_buy_quote"]
 
 
 class BinanceBlockedError(RuntimeError):
@@ -54,6 +72,38 @@ def _headers() -> dict[str, str]:
     return {}
 
 
+def drop_incomplete_bars(
+    df: pd.DataFrame,
+    timeframe: str,
+    *,
+    now_ms: int | None = None,
+) -> pd.DataFrame:
+    """Keep only bars whose close time is strictly in the past (closed bars)."""
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame(columns=OHLCV_COLS)
+    step = TF_MS.get(timeframe)
+    if not step or "ts_ms" not in df.columns:
+        return df
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    out = df.loc[df["ts_ms"].astype("int64") + int(step) <= now].copy()
+    return out.reset_index(drop=True)
+
+
+def drop_junk_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop flat zero-volume junk rows that are not valid exchange candles."""
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame(columns=OHLCV_COLS)
+    o = df["open"].astype(float)
+    h = df["high"].astype(float)
+    l = df["low"].astype(float)
+    c = df["close"].astype(float)
+    v = df["volume"].astype(float).fillna(0.0)
+    flat = (o == h) & (h == l) & (l == c) & (v <= 0.0)
+    bad_ohlc = (h < l) | (h < o) | (h < c) | (l > o) | (l > c)
+    keep = ~(flat | bad_ohlc)
+    return df.loc[keep].reset_index(drop=True)
+
+
 def fetch_klines(
     symbol: str,
     timeframe: str,
@@ -63,8 +113,15 @@ def fetch_klines(
     start_ms: int | None = None,
     end_ms: int | None = None,
     sleep_s: float = 0.05,
+    include_aux: bool = False,
+    drop_incomplete: bool = True,
+    drop_junk: bool = True,
 ) -> pd.DataFrame:
-    """Paginate Binance klines until history is exhausted. Returns UTC OHLCV DataFrame."""
+    """Paginate Binance klines until history is exhausted. Returns UTC OHLCV DataFrame.
+
+    Closed-bar policy (default): drops the still-forming tip bar and flat/volume-0 junk
+    so research warehouse and live shared DB share the same tip OHLC identity.
+    """
     interval = BINANCE_INTERVAL.get(timeframe)
     if not interval:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
@@ -77,6 +134,7 @@ def fetch_klines(
     # latest `limit` bars — never do that for a full backfill.
     cursor = 0 if start_ms is None else int(start_ms)
     hard_end = end_ms
+    want_aux = bool(include_aux and price_type == "last")
     all_rows: dict[int, tuple] = {}
     session = requests.Session()
     while True:
@@ -104,14 +162,28 @@ def fetch_klines(
         before = len(all_rows)
         for item in lst:
             ts = int(item[0])
-            all_rows[ts] = (
-                ts,
-                float(item[1]),
-                float(item[2]),
-                float(item[3]),
-                float(item[4]),
-                float(item[5]),
-            )
+            if want_aux and len(item) >= 11:
+                all_rows[ts] = (
+                    ts,
+                    float(item[1]),
+                    float(item[2]),
+                    float(item[3]),
+                    float(item[4]),
+                    float(item[5]),
+                    float(item[7]),
+                    int(item[8]),
+                    float(item[9]),
+                    float(item[10]),
+                )
+            else:
+                all_rows[ts] = (
+                    ts,
+                    float(item[1]),
+                    float(item[2]),
+                    float(item[3]),
+                    float(item[4]),
+                    float(item[5]),
+                )
         if len(all_rows) == before:
             break
         last_open = int(lst[-1][0])
@@ -124,11 +196,33 @@ def fetch_klines(
         if len(lst) < 1500:
             break
         time.sleep(sleep_s)
+    cols = OHLCV_COLS + (AUX_COLS if want_aux else [])
     if not all_rows:
-        return pd.DataFrame(columns=["ts_ms", "open", "high", "low", "close", "volume"])
-    df = pd.DataFrame(
-        [all_rows[k] for k in sorted(all_rows)],
-        columns=["ts_ms", "open", "high", "low", "close", "volume"],
-    )
+        return pd.DataFrame(columns=cols)
+    # Rows may be mixed length if some pages lacked aux — normalize via DataFrame ctor
+    df = pd.DataFrame([all_rows[k] for k in sorted(all_rows)])
+    if want_aux and df.shape[1] == 10:
+        df.columns = cols
+    else:
+        df = df.iloc[:, :6]
+        df.columns = OHLCV_COLS
+    if drop_incomplete:
+        df = drop_incomplete_bars(df, timeframe)
+    if drop_junk:
+        df = drop_junk_bars(df)
     log.info("Binance %s/%s %s %s -> %s bars", market, price_type, symbol, timeframe, len(df))
-    return df
+    return df.reset_index(drop=True)
+
+
+def tip_ohlc_fingerprint(df: pd.DataFrame) -> dict | None:
+    """Closed-bar tip identity for shared↔warehouse compare (OHLC only)."""
+    if df is None or df.empty or "ts_ms" not in df.columns:
+        return None
+    row = df.sort_values("ts_ms").iloc[-1]
+    return {
+        "ts_ms": int(row["ts_ms"]),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+    }

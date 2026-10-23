@@ -8,7 +8,7 @@ vps:
   "local":
     bots: [news, wip, divergences, crypthor2, karmaa_mp, xgb, tsm_vpa]
   "94.156.189.76":
-    bots: [news, xgb, xgb_match, tsm_vpa]
+    bots: [news, xgb_match, tsm_vpa]
   "212.73.150.178":
     bots: [divergences, crypthor2, karmaa_mp]
 

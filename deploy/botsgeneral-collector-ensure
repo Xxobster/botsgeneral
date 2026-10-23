@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Keep the shared-candle collector always enabled and running on this VPS.
+set -euo pipefail
+
+PRIMARY_IPS=(94.156.189.76 212.73.150.178 185.203.119.52)
+
+resolve_unit() {
+  local ip h u
+  h=$(hostname -I 2>/dev/null || true)
+  # 1) Match this host's public IP
+  for ip in "${PRIMARY_IPS[@]}"; do
+    if [[ " $h " == *" $ip "* ]]; then
+      echo "botsgeneral-collector@${ip}.service"
+      return 0
+    fi
+  done
+  # 2) Any running / enabled instance (not the template botsgeneral-collector@.service)
+  u=$(systemctl list-units --type=service --all --no-legend 'botsgeneral-collector@*.service' 2>/dev/null \
+      | awk '{print $1}' \
+      | grep -E 'botsgeneral-collector@[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.service' \
+      | head -1 || true)
+  if [[ -n "${u:-}" ]]; then
+    echo "$u"
+    return 0
+  fi
+  # 3) Enabled instance unit files
+  u=$(systemctl list-unit-files --no-legend 'botsgeneral-collector@*.service' 2>/dev/null \
+      | awk '{print $1}' \
+      | grep -E 'botsgeneral-collector@[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.service' \
+      | head -1 || true)
+  if [[ -n "${u:-}" ]]; then
+    echo "$u"
+    return 0
+  fi
+  return 1
+}
+
+UNIT=$(resolve_unit) || {
+  echo "botsgeneral-collector-ensure: no collector instance for this host (hostname-I=$(hostname -I 2>/dev/null || true))" >&2
+  exit 1
+}
+
+if [[ ! -f /etc/systemd/system/botsgeneral-collector@.service ]]; then
+  if [[ -f /opt/botsgeneral/deploy/botsgeneral-collector@.service ]]; then
+    cp /opt/botsgeneral/deploy/botsgeneral-collector@.service /etc/systemd/system/
+    systemctl daemon-reload
+  fi
+fi
+
+systemctl enable "$UNIT" >/dev/null 2>&1 || true
+
+STATE=$(systemctl is-active "$UNIT" 2>/dev/null || echo inactive)
+if [[ "$STATE" != "active" ]]; then
+  echo "botsgeneral-collector-ensure: starting $UNIT (was $STATE)"
+  systemctl start "$UNIT" || true
+  sleep 1
+  STATE=$(systemctl is-active "$UNIT" 2>/dev/null || echo inactive)
+fi
+
+if [[ "$STATE" == "active" ]]; then
+  exit 0
+fi
+echo "botsgeneral-collector-ensure: FAILED to keep $UNIT active (state=$STATE)" >&2
+exit 1

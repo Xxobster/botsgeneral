@@ -104,29 +104,32 @@ def build_legs(
     swings: list[Swing],
     events: list[StructureEvent],
 ) -> list[Leg]:
-    """Legs between consecutive opposite-kind confirmed swings + fib retrace of next leg."""
+    """Legs between consecutive opposite-kind confirmed swings + fib retrace of next leg.
+
+    Complexity is O(n_swings + n_events). Bias must NOT re-scan all prior events per
+    swing — that was O(n·m) and blew up live 15m refresh to ~8+ minutes on ~65k swings
+    (VPS profile: build_legs ~536s vs find_swings ~0.5s).
+    """
     if len(swings) < 2:
         return []
 
+    # Cumulative structure bias after each event (events walk in swing order).
+    bias_after: dict[int, int] = {}
+    bull = bear = 0
+    for e in events:
+        if e.label in ("HH", "HL"):
+            bull += 1
+        elif e.label in ("LH", "LL"):
+            bear += 1
+        if bull > bear:
+            bias_after[e.swing_id] = 1
+        elif bear > bull:
+            bias_after[e.swing_id] = -1
+        else:
+            bias_after[e.swing_id] = 0
+
     # Alternate filter: keep chronological swings but pair opposite kinds only.
     ordered = sorted(swings, key=lambda s: (s.pivot_i, s.confirm_i))
-
-    # Bias from recent structure: +1 bullish (HH/HL), -1 bearish (LH/LL).
-    def bias_at(swing_id: int) -> int:
-        # Look at labels up to and including this swing.
-        bull = bear = 0
-        for e in events:
-            if e.swing_id > swing_id:
-                break
-            if e.label in ("HH", "HL"):
-                bull += 1
-            elif e.label in ("LH", "LL"):
-                bear += 1
-        if bull > bear:
-            return 1
-        if bear > bull:
-            return -1
-        return 0
 
     raw: list[dict] = []
     prev: Swing | None = None
@@ -143,7 +146,7 @@ def build_legs(
         length_abs = abs(s.price - prev.price)
         mid = 0.5 * (abs(s.price) + abs(prev.price))
         length_pct = length_abs / mid if mid > 0 else float("nan")
-        b = bias_at(s.swing_id)
+        b = int(bias_after.get(s.swing_id, 0))
         if b > 0:
             kind = "impulse" if direction == "up" else "correction"
         elif b < 0:

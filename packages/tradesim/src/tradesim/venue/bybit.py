@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..contracts import InstrumentSpec
+from ..contracts import InstrumentSpec, MaintenanceTier
 
 # Preferred: %USERPROFILE%\.trading\secrets.env (env-style). Legacy plaintext
 # under ~/.trading/legacy is a fallback only.
@@ -62,7 +62,14 @@ class BybitInstrument:
     status: str
     retrieved_at_ms: int
 
-    def to_instrument_spec(self, *, maintenance_rate: float = 0.005) -> InstrumentSpec:
+    def to_instrument_spec(
+        self,
+        *,
+        maintenance_rate: float = 0.005,
+        maintenance_tiers: tuple[MaintenanceTier, ...] | list[MaintenanceTier] | None = None,
+    ) -> InstrumentSpec:
+        tiers = tuple(maintenance_tiers or ())
+        mm = float(tiers[0].mm_rate) if tiers else float(maintenance_rate)
         return InstrumentSpec(
             symbol=self.symbol,
             tick_size=self.tick_size,
@@ -71,11 +78,53 @@ class BybitInstrument:
             min_notional=self.min_notional,
             max_qty=self.max_qty,
             max_leverage=self.max_leverage,
-            maintenance_rate=maintenance_rate,
+            maintenance_rate=mm,
+            maintenance_tiers=tiers,
             funding_interval_ms=8 * 60 * 60 * 1000,
             snapshot_ts_ms=self.retrieved_at_ms,
-            source="bybit_v5_instruments-info",
+            source=(
+                "bybit_v5_instruments-info+risk-limit"
+                if tiers
+                else "bybit_v5_instruments-info"
+            ),
         )
+
+
+def fetch_risk_limit_tiers(
+    symbol: str,
+    *,
+    category: str = "linear",
+) -> tuple[MaintenanceTier, ...]:
+    """Public Bybit V5 risk-limit ladder → tradesim ``MaintenanceTier`` rows.
+
+    ``riskLimitValue`` is the notional *ceiling* of each tier; we store it as the
+    ``notional_floor`` of the *next* tier (tier 0 floor = 0).
+    """
+    data = _get_json(
+        "/v5/market/risk-limit",
+        {"category": category, "symbol": symbol.upper()},
+    )
+    if int(data.get("retCode", -1)) != 0:
+        raise RuntimeError(f"Bybit risk-limit failed: {data.get('retMsg')}")
+    rows = list(data.get("result", {}).get("list") or [])
+    if not rows:
+        return ()
+    # Ascending by riskLimitValue
+    rows.sort(key=lambda r: float(r.get("riskLimitValue") or 0.0))
+    tiers: list[MaintenanceTier] = []
+    prev_ceil = 0.0
+    for row in rows:
+        ceil = float(row.get("riskLimitValue") or 0.0)
+        tiers.append(
+            MaintenanceTier(
+                notional_floor=prev_ceil,
+                mm_rate=float(row.get("maintenanceMargin") or 0.005),
+                max_leverage=float(row.get("maxLeverage") or 1.0),
+                deduction=float(row.get("mmDeduction") or 0.0),
+            )
+        )
+        prev_ceil = ceil
+    return tuple(tiers)
 
 
 def load_xxobster_local(

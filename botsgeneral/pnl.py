@@ -12,7 +12,7 @@ import requests
 
 from botsgeneral.discover import load_registry
 from botsgeneral.keys import resolve_accounts
-from botsgeneral.metrics import enrich_open_position, fmt_signed_pct, fmt_ts_utc
+from botsgeneral.metrics import enrich_open_position, fmt_signed_pct
 
 log = logging.getLogger(__name__)
 BYBIT = "https://api.bybit.com"
@@ -155,8 +155,11 @@ def account_summary(name: str, creds: dict[str, str]) -> dict[str, Any]:
                         "leverage": p.get("leverage"),
                         "takeProfit": p.get("takeProfit") or None,
                         "stopLoss": p.get("stopLoss") or None,
+                        # createdTime = first-ever open on this symbol (stale across reopens).
+                        # openTime = current position-cycle open (ms); 0/missing when unset.
                         "createdTime": p.get("createdTime"),
                         "updatedTime": p.get("updatedTime"),
+                        "openTime": p.get("openTime"),
                     }
                 )
         out["positions"] = positions
@@ -204,7 +207,6 @@ def print_pnl(report: dict) -> None:
         )
         for p in a.get("positions") or []:
             p = enrich_open_position(p)
-            opened = fmt_ts_utc(p.get("opened_at_ms"))
             closer = p.get("closer_exit")
             closer_s = (
                 f"to_{closer}={fmt_signed_pct(p.get('closer_pct'))}"
@@ -214,6 +216,6 @@ def print_pnl(report: dict) -> None:
             print(
                 f"    pos {p['symbol']:10} {p['side']:5} size={p['size']} "
                 f"avg={p['avgPrice']} upl={p['unrealisedPnl']} lev={p['leverage']}  "
-                f"opened={opened}  {closer_s}"
+                f"{closer_s}"
             )
     print(f"\nTOTAL equity={report.get('total_equity')} perp_upl={report.get('total_perp_upl')}")

@@ -1,9 +1,10 @@
 # Phone-friendly report settings (copy to /etc/botsgeneral/report.yaml on VPS)
 # Change since_date anytime — no code deploy needed.
+# Date-only is UTC midnight. Use YYYY-MM-DDTHH:MM:SSZ to drop same-day leftover closes.
 
 since_date: "2026-07-09"   # YYYY-MM-DD — default PnL / trades start (UTC)
 
-# Per-bot per-symbol PnL start dates (YYYY-MM-DD UTC). Override anytime in this file.
+# Per-bot per-symbol PnL start (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ UTC).
 # Example:
 # since_by_bot:
 #   xgb:
@@ -12,16 +13,28 @@ since_date: "2026-07-09"   # YYYY-MM-DD — default PnL / trades start (UTC)
 #   tsm_vpa:
 #     VETUSDT: "2026-07-25"
 since_by_bot:
-  xgb:
-    BTCUSDT: "2026-07-21"
-    ETHUSDT: "2026-07-23"
   xgb_match:
     BTCUSDT: "2026-07-25"
     ETHUSDT: "2026-07-25"
+  tsm_chandelier:
+    BTCUSDT: "2026-08-10"   # chandelier go-live on Xxobster6 (not 2026-08-02/06 leftover)
+    ETHUSDT: "2026-08-10"
+    SOLUSDT: "2026-08-10"
+  llm2_pivot_sol_geo:
+    SOLUSDT: "2026-08-12"
+  llm2_pivot_eth_ctrl:
+    ETHUSDT: "2026-08-12"
+  llm2_autonomy_376_sol:
+    SOLUSDT: "2026-08-26"   # after leftover Xxobster2 XGB ETH Market closes (25 Aug 12:26 UTC)
+  llm2_autonomy_705_eth:
+    ETHUSDT: "2026-08-26"
+  # llm2_ema_sol_1h:
+  #   SOLUSDT: "2026-09-01T11:38:16Z"   # datetime drops same-day leftover closes
 
 # Per-account PnL start (overrides since_date for that account only)
 since_by_account:
-  Xxobster6: "2026-08-02"   # divergences ETH 1h confluence go-live
+  Xxobster6: "2026-08-10"   # tsm_chandelier go-live (was 2026-08-02 divergences / 2026-08-06 structure)
+  Xxobster2: "2026-08-26"   # autonomy 376/705 book; leftover XGB ETH Market closed 25 Aug 12:26 UTC
 
 # Optional filters for default `bots` summary (empty = all accounts on this VPS)
 # accounts: []

@@ -26,7 +26,16 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from .contracts import REASON_LIQUIDATION, SimResult, Trade
+from .contracts import (
+    REASON_BREAK_EVEN,
+    REASON_LIQUIDATION,
+    REASON_STOP,
+    REASON_TARGET,
+    REASON_TRAILING,
+    SimResult,
+    Trade,
+    base_reason,
+)
 
 DEFAULT_ANNUALISATION_DAYS = 365.0
 
@@ -101,6 +110,18 @@ class MetricsReport:
     short_pnl: float
     long_win_rate: float
     short_win_rate: float
+    # simultaneous open positions (time-weighted average / event-path max)
+    max_simultaneous_trades: int
+    avg_simultaneous_trades: float
+    max_simultaneous_longs: int
+    avg_simultaneous_longs: float
+    max_simultaneous_shorts: int
+    avg_simultaneous_shorts: float
+    # exit-reason buckets (TP / SL / other) — entry-bar suffix stripped first
+    n_exits_tp: int
+    n_exits_sl: int
+    n_exits_other: int
+    exit_reason_counts: Mapping[str, int]
     # streaks / quality
     max_consecutive_wins: int
     max_consecutive_losses: int
@@ -171,6 +192,16 @@ class MetricsReport:
             "# Trades": self.n_trades,
             "# Longs": self.n_longs,
             "# Shorts": self.n_shorts,
+            "Max Simultaneous Trades": self.max_simultaneous_trades,
+            "Avg Simultaneous Trades": self.avg_simultaneous_trades,
+            "Max Simultaneous Longs": self.max_simultaneous_longs,
+            "Avg Simultaneous Longs": self.avg_simultaneous_longs,
+            "Max Simultaneous Shorts": self.max_simultaneous_shorts,
+            "Avg Simultaneous Shorts": self.avg_simultaneous_shorts,
+            "# Exits TP": self.n_exits_tp,
+            "# Exits SL": self.n_exits_sl,
+            "# Exits Other": self.n_exits_other,
+            "Exit reason counts": dict(self.exit_reason_counts),
             "Win Rate [%]": self.win_rate * 100.0 if math.isfinite(self.win_rate) else math.nan,
             "Best Trade [%]": self.best_trade_pct * 100.0,
             "Worst Trade [%]": self.worst_trade_pct * 100.0,
@@ -404,6 +435,118 @@ def _kelly(win_rate: float, payoff: float) -> float:
 
 
 # --------------------------------------------------------------------------------------
+# Simultaneous open positions
+# --------------------------------------------------------------------------------------
+
+
+def exit_reason_bucket(reason: str) -> str:
+    """Classify a trade exit as ``tp``, ``sl``, or ``other``.
+
+    Take-profit: ``target`` (and any ``target*`` / ``tp*``).
+    Stop-loss family: ``stop``, ``trailing_stop``, ``break_even_stop``.
+    Everything else (``max_hold``, ``liquidation``, ``end_of_data``, …) is other.
+    Entry-bar suffixes are stripped first.
+    """
+    base = str(base_reason(str(reason or "")) or "").strip().lower()
+    if not base:
+        return "other"
+    if base == REASON_TARGET or base.startswith("target") or base.startswith("tp"):
+        return "tp"
+    if base in {REASON_STOP, REASON_TRAILING, REASON_BREAK_EVEN}:
+        return "sl"
+    if "stop" in base:  # unexpected stop variants still count as SL
+        return "sl"
+    return "other"
+
+
+def exit_reason_stats(
+    trades: Sequence[Trade],
+) -> tuple[int, int, int, dict[str, int]]:
+    """Return ``(n_tp, n_sl, n_other, counts_by_base_reason)``."""
+    n_tp = n_sl = n_other = 0
+    counts: dict[str, int] = {}
+    for t in trades:
+        raw = str(getattr(t, "exit_reason", "") or "")
+        base = base_reason(raw) or raw or "unknown"
+        counts[base] = counts.get(base, 0) + 1
+        bucket = exit_reason_bucket(raw)
+        if bucket == "tp":
+            n_tp += 1
+        elif bucket == "sl":
+            n_sl += 1
+        else:
+            n_other += 1
+    return n_tp, n_sl, n_other, counts
+
+
+def simultaneous_open_stats(
+    trades: Sequence[Trade],
+) -> tuple[int, float, int, float, int, float]:
+    """Max and time-weighted average concurrent open trades (total / long / short).
+
+    Each trade occupies ``[entry_ts_ms, exit_ts_ms)`` (half-open). At a given timestamp
+    an exit is applied before an entry so pure hand-offs do not inflate the count.
+    Averages are time-weighted over the span from the first entry to the last exit;
+    with no trades all values are zero.
+    """
+    if not trades:
+        return 0, 0.0, 0, 0.0, 0, 0.0
+
+    # (ts_ms, delta, is_long) — close first when timestamps tie (delta -1 before +1).
+    events: list[tuple[int, int, bool]] = []
+    t0 = min(int(t.entry_ts_ms) for t in trades)
+    t1 = max(int(t.exit_ts_ms) for t in trades)
+    for t in trades:
+        e = int(t.entry_ts_ms)
+        x = int(t.exit_ts_ms)
+        is_long = int(t.side) > 0
+        events.append((e, +1, is_long))
+        # Zero-length: force a unit exposure at entry so same-bar trades still count.
+        if x <= e:
+            events.append((e + 1, -1, is_long))
+            t1 = max(t1, e + 1)
+        else:
+            events.append((x, -1, is_long))
+    events.sort(key=lambda row: (row[0], 0 if row[1] < 0 else 1, 0 if row[2] else 1))
+
+    cur_t = cur_l = cur_s = 0
+    max_t = max_l = max_s = 0
+    sum_t = sum_l = sum_s = 0.0
+    last_ts: int | None = None
+
+    for ts, delta, is_long in events:
+        if last_ts is not None and ts > last_ts:
+            dt = float(ts - last_ts)
+            sum_t += cur_t * dt
+            sum_l += cur_l * dt
+            sum_s += cur_s * dt
+        cur_t += delta
+        if is_long:
+            cur_l += delta
+        else:
+            cur_s += delta
+        if cur_t > max_t:
+            max_t = cur_t
+        if cur_l > max_l:
+            max_l = cur_l
+        if cur_s > max_s:
+            max_s = cur_s
+        last_ts = ts
+
+    span = float(max(t1 - t0, 0))
+    if span <= 0:
+        return max_t, float(max_t), max_l, float(max_l), max_s, float(max_s)
+    return (
+        int(max_t),
+        float(sum_t / span),
+        int(max_l),
+        float(sum_l / span),
+        int(max_s),
+        float(sum_s / span),
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Top level
 # --------------------------------------------------------------------------------------
 
@@ -506,6 +649,15 @@ def compute_metrics(
     )
     max_w, max_l = _streak_extremes(pnls)
     equity_peak = float(np.max(mtm)) if mtm.size else result.ending_equity
+    (
+        max_sim_t,
+        avg_sim_t,
+        max_sim_l,
+        avg_sim_l,
+        max_sim_s,
+        avg_sim_s,
+    ) = simultaneous_open_stats(trades)
+    n_exits_tp, n_exits_sl, n_exits_other, exit_counts = exit_reason_stats(trades)
 
     return MetricsReport(
         n_trades=n,
@@ -563,6 +715,16 @@ def compute_metrics(
         short_win_rate=(
             float((short_pnls > 0).mean()) if short_pnls.size else math.nan
         ),
+        max_simultaneous_trades=max_sim_t,
+        avg_simultaneous_trades=avg_sim_t,
+        max_simultaneous_longs=max_sim_l,
+        avg_simultaneous_longs=avg_sim_l,
+        max_simultaneous_shorts=max_sim_s,
+        avg_simultaneous_shorts=avg_sim_s,
+        n_exits_tp=n_exits_tp,
+        n_exits_sl=n_exits_sl,
+        n_exits_other=n_exits_other,
+        exit_reason_counts=exit_counts,
         max_consecutive_wins=max_w,
         max_consecutive_losses=max_l,
         sqn=_sqn(pnls),
@@ -642,6 +804,17 @@ def headline_table(report: MetricsReport) -> str:
         f"trades             : {report.n_trades}  "
         f"(longs {report.n_longs} / shorts {report.n_shorts})  "
         f"{report.trades_per_month:.2f}/month",
+        f"simultaneous open  : max {report.max_simultaneous_trades}  "
+        f"avg {report.avg_simultaneous_trades:.2f}  "
+        f"(longs max {report.max_simultaneous_longs} / avg {report.avg_simultaneous_longs:.2f}; "
+        f"shorts max {report.max_simultaneous_shorts} / avg {report.avg_simultaneous_shorts:.2f})",
+        f"exits              : TP {report.n_exits_tp}  SL {report.n_exits_sl}  "
+        f"other {report.n_exits_other}"
+        + (
+            f"  {dict(report.exit_reason_counts)}"
+            if report.exit_reason_counts
+            else ""
+        ),
         f"hold bars          : avg {report.avg_hold_bars:.2f}  "
         f"min {report.min_hold_bars:.0f}  max {report.max_hold_bars:.0f}",
         f"hold hours         : avg {report.avg_hold_hours:.2f}  "

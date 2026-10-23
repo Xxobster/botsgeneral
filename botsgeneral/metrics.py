@@ -7,21 +7,229 @@ from typing import Any
 import numpy as np
 
 
+def trade_ts_ms(t: dict[str, Any]) -> int:
+    for k in ("updatedTime", "updated_ms", "createdTime", "created_ms"):
+        raw = t.get(k)
+        if raw in (None, ""):
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def days_active(since_ms: int, now_ms: int | None = None) -> float:
+    """Calendar days from the PnL start stamp to now (UTC)."""
+    import time as _time
+
+    now = int(now_ms if now_ms is not None else _time.time() * 1000)
+    return round(max(0.0, (now - int(since_ms)) / 86_400_000.0), 2)
+
+
+def equity_curve_from_closed(
+    closed: list[dict[str, Any]],
+    *,
+    max_points: int = 400,
+) -> dict[str, Any]:
+    """Cumulative realized Profit and Loss (PnL) vs close time. Vectorized cumsum."""
+    empty = {"points": [], "final": 0.0, "n": 0}
+    if not closed:
+        return empty
+    ordered = sorted(closed, key=trade_ts_ms)
+    pnls = np.array(
+        [float(t.get("closedPnl") or t.get("closed_pnl") or 0) for t in ordered],
+        dtype=float,
+    )
+    ts = np.array([trade_ts_ms(t) for t in ordered], dtype=np.int64)
+    if pnls.size == 0:
+        return empty
+    cum = np.cumsum(pnls)
+    n = int(pnls.size)
+    if n <= max_points:
+        idx = np.arange(n)
+    else:
+        idx = np.linspace(0, n - 1, max_points).astype(np.int64)
+        idx[-1] = n - 1
+        idx = np.unique(idx)
+    points = [{"t": int(ts[i]), "cum": float(cum[i])} for i in idx.tolist()]
+    return {"points": points, "final": float(cum[-1]), "n": n}
+
+
+def equity_curves_by_symbol(closed: list[dict[str, Any]], *, max_points: int = 300) -> dict[str, Any]:
+    by: dict[str, list[dict[str, Any]]] = {}
+    for t in closed:
+        sym = str(t.get("symbol") or "?").upper()
+        by.setdefault(sym, []).append(t)
+    return {sym: equity_curve_from_closed(rows, max_points=max_points) for sym, rows in by.items()}
+
+
 def parse_since_ms(since_date: str) -> int:
-    """Parse YYYY-MM-DD as UTC midnight → ms."""
-    d = datetime.strptime(since_date.strip()[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    return int(d.timestamp() * 1000)
+    """Parse a since stamp to UTC milliseconds.
+
+    ``YYYY-MM-DD`` is UTC midnight (same window as before). Datetime forms keep
+    the clock so a same-calendar-day leftover close can be excluded:
+
+    ``2026-09-01T11:38:16Z``, ``2026-09-01 11:38:16``, or offset ISO-8601.
+    Naive datetimes are treated as UTC.
+    """
+    raw = str(since_date).strip()
+    if not raw:
+        raise ValueError("empty since")
+    if raw.endswith("Z") or raw.endswith("z"):
+        raw = raw[:-1] + "+00:00"
+    if len(raw) == 10:
+        d = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return int(d.timestamp() * 1000)
+    if len(raw) >= 11 and raw[10] == " ":
+        raw = raw[:10] + "T" + raw[11:]
+    dt = datetime.fromisoformat(raw)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
 
 
-def trade_metrics(closed: list[dict[str, Any]]) -> dict[str, Any]:
+def _entry_px(t: dict[str, Any]) -> float | None:
+    for k in ("avgEntryPrice", "entry", "avg_entry_price"):
+        v = t.get(k)
+        if v in (None, ""):
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _leg_qty(t: dict[str, Any]) -> float:
+    for k in ("closedSize", "closed_size", "qty", "size"):
+        v = t.get(k)
+        if v in (None, ""):
+            continue
+        try:
+            return abs(float(v))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _leg_pnl(t: dict[str, Any]) -> float:
+    try:
+        return float(t.get("closedPnl") or t.get("closed_pnl") or t.get("pnl") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def group_closed_legs_to_roundtrips(
+    closed: list[dict[str, Any]],
+    *,
+    window_ms: int = 7 * 24 * 3_600_000,
+    entry_rel_eps: float = 1e-8,
+) -> list[dict[str, Any]]:
+    """Merge scale-out / partial exit legs that share one entry into one round-trip.
+
+    Bybit closed-Profit-and-Loss (PnL) lists every take-profit fill as its own row.
+    Counting those as separate trades inflates Human-Machine Interface (HMI)
+    closed-trade counts (e.g. three identical 0.1 Solana takes from one 0.3 entry).
+    """
+    if not closed:
+        return []
+    ordered = sorted(closed, key=trade_ts_ms)
+    groups: list[dict[str, Any]] = []
+    for leg in ordered:
+        sym = str(leg.get("symbol") or "").upper()
+        side = str(leg.get("side") or "")
+        entry = _entry_px(leg)
+        ts = trade_ts_ms(leg)
+        matched = None
+        for g in groups:
+            if g["symbol"] != sym or g["side"] != side:
+                continue
+            if entry is None or g["entry"] is None:
+                continue
+            base = max(abs(float(g["entry"])), 1e-12)
+            if abs(float(entry) - float(g["entry"])) > max(entry_rel_eps * base, 1e-8):
+                continue
+            if ts - int(g["first_ms"]) > int(window_ms):
+                continue
+            matched = g
+            break
+        if matched is None:
+            groups.append(
+                {
+                    "symbol": sym,
+                    "side": side,
+                    "entry": entry,
+                    "exit": leg.get("avgExitPrice") or leg.get("exit"),
+                    "legs": [leg],
+                    "first_ms": ts,
+                    "last_ms": ts,
+                    "qty": _leg_qty(leg),
+                    "closedPnl": _leg_pnl(leg),
+                    "orderId": leg.get("orderId") or leg.get("order_id"),
+                    "leverage": leg.get("leverage"),
+                    "createdTime": leg.get("createdTime") or leg.get("created_ms"),
+                    "updatedTime": leg.get("updatedTime") or leg.get("updated_ms") or ts,
+                }
+            )
+            continue
+        matched["legs"].append(leg)
+        matched["last_ms"] = max(int(matched["last_ms"]), ts)
+        matched["qty"] = float(matched["qty"]) + _leg_qty(leg)
+        matched["closedPnl"] = float(matched["closedPnl"]) + _leg_pnl(leg)
+        matched["updatedTime"] = matched["last_ms"]
+        # Prefer the last exit price for display.
+        matched["exit"] = leg.get("avgExitPrice") or leg.get("exit") or matched["exit"]
+
+    out: list[dict[str, Any]] = []
+    for g in groups:
+        legs = g["legs"]
+        row = {
+            "orderId": g["orderId"],
+            "symbol": g["symbol"],
+            "side": g["side"],
+            "qty": g["qty"],
+            "closedSize": g["qty"],
+            "avgEntryPrice": g["entry"],
+            "avgExitPrice": g["exit"],
+            "closedPnl": g["closedPnl"],
+            "leverage": g["leverage"],
+            "createdTime": g["createdTime"] or g["first_ms"],
+            "updatedTime": g["updatedTime"] or g["last_ms"],
+            "leg_count": len(legs),
+            "leg_order_ids": [
+                str(x.get("orderId") or x.get("order_id") or "")
+                for x in legs
+                if x.get("orderId") or x.get("order_id")
+            ],
+        }
+        # Keep first leg extras that normalize_closed_trades may want.
+        for k in ("orderType", "execType", "openFee", "closeFee", "cumEntryFee", "cumExitFee", "fillCount"):
+            if k in legs[0] and k not in row:
+                row[k] = legs[0].get(k)
+        out.append(row)
+    out.sort(key=lambda r: int(r.get("updatedTime") or 0), reverse=True)
+    return out
+
+
+def trade_metrics(
+    closed: list[dict[str, Any]],
+    *,
+    group_roundtrips: bool = True,
+) -> dict[str, Any]:
     """Vectorized metrics from closed-pnl rows (Bybit closed-pnl list items).
 
     Risk headline metrics prefer recovery factor + MaxDD% over trade Sharpe:
     trade Sharpe mixes heterogeneous hold times and absolute USDT PnL scale,
     so it is a weak live-risk signal for small n.
+
+    By default, scale-out legs that share one entry are merged into round-trips
+    before counting wins/losses (``n_trades``). ``n_legs`` keeps the raw Bybit
+    fill count for diagnostics.
     """
     empty = {
         "n_trades": 0,
+        "n_legs": 0,
         "wins": 0,
         "losses": 0,
         "winrate": None,
@@ -38,10 +246,13 @@ def trade_metrics(closed: list[dict[str, Any]]) -> dict[str, Any]:
         "max_dd_pct": None,
         "recovery_factor": None,
     }
-    if not closed:
+    n_legs = len(closed or [])
+    rows = group_closed_legs_to_roundtrips(closed) if group_roundtrips else list(closed or [])
+    if not rows:
+        empty["n_legs"] = n_legs
         return empty
 
-    pnls = np.array([float(t.get("closedPnl") or t.get("closed_pnl") or 0) for t in closed], dtype=float)
+    pnls = np.array([_leg_pnl(t) for t in rows], dtype=float)
     n = int(pnls.size)
     wins_mask = pnls > 0
     losses_mask = pnls < 0
@@ -77,6 +288,7 @@ def trade_metrics(closed: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "n_trades": n,
+        "n_legs": n_legs,
         "wins": wins,
         "losses": losses,
         "winrate": wr,
@@ -136,12 +348,8 @@ def enrich_open_position(pos: dict[str, Any]) -> dict[str, Any]:
     if candidates:
         closer, closer_pct = min(candidates, key=lambda x: x[1])
 
-    opened_ms = None
-    for k in ("createdTime", "created_time", "updatedTime"):
-        v = pos.get(k)
-        if v is not None and str(v).isdigit():
-            opened_ms = int(v)
-            break
+    # Bybit: openTime = current cycle open; createdTime = first-ever on symbol.
+    opened_ms = _position_opened_at_ms(pos)
 
     out["markPrice"] = mark
     out["avgPrice"] = avg if avg is not None else pos.get("avgPrice")
@@ -155,27 +363,60 @@ def enrich_open_position(pos: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _as_ms(v: Any) -> int | None:
+    if v is None or v == "":
+        return None
+    try:
+        n = int(float(v))
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _position_opened_at_ms(pos: dict[str, Any]) -> int | None:
+    """Current-cycle open time for a live Bybit position.
+
+    Prefer ``openTime`` (this cycle). Never use ``createdTime`` — Bybit documents
+    it as the first time a position was created on the symbol, so it stays at an
+    old date across flat/reopen and breaks ``last_open`` / ``opened=``.
+    """
+    for k in ("openTime", "open_time", "opened_at_ms"):
+        ts = _as_ms(pos.get(k))
+        if ts is not None:
+            return ts
+    return None
+
+
 def last_open_event(
     positions: list[dict[str, Any]],
     closed: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Most recent position open: prefer live opens, else latest closed entry time."""
+    """Most recent position-open event across live opens and closed rows.
+
+    Takes the max timestamp from both sources (not live-only). Live rows use
+    current-cycle ``openTime`` via ``opened_at_ms``; closed rows use Bybit
+    closed-pnl ``createdTime`` (close time — best available without execution
+    history) only when no newer live open exists.
+    """
     best_ts = -1
     best_sym = None
     best_src = None
     for p in positions or []:
-        ts = int(p.get("opened_at_ms") or p.get("createdTime") or 0)
+        ts = _position_opened_at_ms(p)
+        if ts is None:
+            continue
         if ts > best_ts:
             best_ts = ts
             best_sym = (p.get("symbol") or "").upper() or None
             best_src = "open"
-    if best_ts < 0:
-        for t in closed or []:
-            ts = int(t.get("createdTime") or t.get("updatedTime") or 0)
-            if ts > best_ts:
-                best_ts = ts
-                best_sym = (t.get("symbol") or "").upper() or None
-                best_src = "closed"
+    for t in closed or []:
+        ts = _as_ms(t.get("createdTime")) or _as_ms(t.get("updatedTime"))
+        if ts is None:
+            continue
+        if ts > best_ts:
+            best_ts = ts
+            best_sym = (t.get("symbol") or "").upper() or None
+            best_src = "closed"
     if best_ts < 0 or not best_sym:
         return None
     return {"ts_ms": best_ts, "symbol": best_sym, "source": best_src}

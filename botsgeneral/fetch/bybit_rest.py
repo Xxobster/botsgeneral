@@ -6,10 +6,19 @@ from typing import Iterable
 
 import requests
 
-from botsgeneral.models import BYBIT_INTERVAL, CandlePair, CandleRow
+from botsgeneral.models import BYBIT_INTERVAL, TF_MS, CandlePair, CandleRow
 
 log = logging.getLogger(__name__)
 BYBIT_BASE = "https://api.bybit.com"
+
+
+def _drop_incomplete(rows: list[CandleRow], timeframe: str) -> list[CandleRow]:
+    """Keep only closed bars (open + tf duration <= now). Same policy as Binance bake."""
+    step = TF_MS.get(timeframe)
+    if not step or not rows:
+        return rows
+    now = int(time.time() * 1000)
+    return [r for r in rows if int(r.ts_ms) + int(step) <= now]
 
 
 def fetch_klines(pair: CandlePair, limit: int = 0) -> list[CandleRow]:
@@ -78,8 +87,9 @@ def fetch_klines(pair: CandlePair, limit: int = 0) -> list[CandleRow]:
         if len(lst) < batch:
             break
         time.sleep(0.12)
-    log.info("Bybit fetched %s bars for %s", len(all_rows), pair)
-    return [all_rows[k] for k in sorted(all_rows)]
+    rows = _drop_incomplete([all_rows[k] for k in sorted(all_rows)], pair.timeframe)
+    log.info("Bybit fetched %s bars for %s (closed only)", len(rows), pair)
+    return rows
 
 
 def upsert_pair(db, pair: CandlePair, limit: int = 0) -> int:

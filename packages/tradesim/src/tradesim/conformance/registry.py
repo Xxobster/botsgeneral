@@ -297,6 +297,14 @@ REGISTRY: tuple[ConformanceItem, ...] = (
         _ALL,
         fixture=True,
     ),
+    _item(
+        "EXEC-021",
+        "LIMIT FILL CLOCK: with lower-timeframe touch data, a resting limit fills on the first sub-bar that touches the limit price (at the limit, not the decision-bar open). Take-profit and stop must not fire on any sub-bar before that fill. A path that prints take-profit at 103 then later the buy limit at 98 is not a winning fill at 103.",
+        "9.6.1 / 10",
+        _ALL,
+        fixture=True,
+        note="Decision timeframe places the order; 1-minute (or finer) sequences fill vs take-profit vs stop.",
+    ),
     # ---------------------------------------------------------------- FUND -----------
     _item(
         "FUND-001",

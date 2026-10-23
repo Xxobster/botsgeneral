@@ -4,6 +4,8 @@ Usage:
   python -m market_data.download_all
   python -m market_data.download_all --only binance
   python -m market_data.download_all --only dukascopy,yahoo,btcd
+  python -m market_data.download_all --only yahoo_tech --timeframes 1d
+  python -m market_data.download_all --only yahoo --symbols AAPL,MSFT,NVDA
 """
 
 from __future__ import annotations
@@ -54,6 +56,9 @@ from market_data.universe import (
     DUKASCOPY_NATIVE_TFS,
     FRED,
     YAHOO,
+    YAHOO_TECH_EQUITY,
+    YAHOO_TECH_SYMBOLS,
+    YAHOO_TECH_TIMEFRAMES,
 )
 
 log = logging.getLogger("research_candles")
@@ -149,44 +154,120 @@ def _download_dukascopy(
     return notes
 
 
+def _download_yahoo_instruments(
+    db: ResearchCandleDB,
+    instruments: tuple,
+    *,
+    symbols: set[str] | None = None,
+    timeframes: tuple[str, ...],
+    incremental: bool = True,
+    derive_4h: bool = False,
+    sleep_s: float = 0.0,
+) -> list[str]:
+    notes: list[str] = []
+    for inst in instruments:
+        if symbols is not None and inst.symbol not in symbols:
+            continue
+        for tf in timeframes:
+            if incremental and _series_is_fresh(db, "yahoo", inst.symbol, tf):
+                continue
+            try:
+                df = fetch_yahoo(inst.yahoo, tf)
+                if df.empty:
+                    notes.append(f"yahoo {inst.symbol} {tf}: empty")
+                    continue
+                n = db.upsert_df(
+                    df,
+                    source="yahoo",
+                    symbol=inst.symbol,
+                    timeframe=tf,
+                    price_type="last",
+                    product="equity" if inst.symbol in YAHOO_TECH_SYMBOLS else None,
+                    source_endpoint="yahoo/finance",
+                )
+                log.info("upsert yahoo %s %s -> %s", inst.symbol, tf, n)
+            except Exception as e:
+                msg = f"yahoo {inst.symbol} {tf}: {e}"
+                log.warning(msg)
+                notes.append(msg)
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+        if derive_4h:
+            df_1h = db.load(inst.symbol, "1h", source="yahoo")
+            if not df_1h.empty:
+                db.upsert_df(
+                    derive_4h_from_1h(df_1h),
+                    source="yahoo",
+                    symbol=inst.symbol,
+                    timeframe="4h",
+                    price_type="last",
+                )
+    return notes
+
+
 def _download_yahoo(
     db: ResearchCandleDB,
     *,
     symbols: set[str] | None = None,
     timeframes: set[str] | None = None,
     incremental: bool = True,
+    include_tech_equity: bool = True,
 ) -> list[str]:
     notes: list[str] = []
-    tfs = tuple(tf for tf in ("1d", "1w", "1h") if timeframes is None or tf in timeframes)
-    for inst in YAHOO:
-        if symbols is not None and inst.symbol not in symbols:
-            continue
-        for tf in tfs:
-            if incremental and _series_is_fresh(db, "yahoo", inst.symbol, tf):
-                continue
-            try:
-                df = fetch_yahoo(inst.yahoo, tf)
-                if df.empty:
-                    continue
-                n = db.upsert_df(df, source="yahoo", symbol=inst.symbol, timeframe=tf, price_type="last")
-                log.info("upsert yahoo %s %s -> %s", inst.symbol, tf, n)
-            except Exception as e:
-                # 1h often unavailable for indices — soft fail
-                msg = f"yahoo {inst.symbol} {tf}: {e}"
-                log.warning(msg)
-                notes.append(msg)
-        # derive 4h from yahoo 1h when present
-        df_1h = db.load(inst.symbol, "1h", source="yahoo")
-        if not df_1h.empty and (timeframes is None or "4h" in timeframes):
-            db.upsert_df(
-                derive_4h_from_1h(df_1h),
-                source="yahoo",
-                symbol=inst.symbol,
-                timeframe="4h",
-                price_type="last",
+    macro_tfs = tuple(tf for tf in ("1d", "1w", "1h") if timeframes is None or tf in timeframes)
+    notes.extend(
+        _download_yahoo_instruments(
+            db,
+            YAHOO,
+            symbols=symbols,
+            timeframes=macro_tfs,
+            incremental=incremental,
+            derive_4h=(timeframes is None or "4h" in timeframes),
+        )
+    )
+    if include_tech_equity:
+        # Daily only by default (multi-decade free path). Explicit --timeframes can add 1h/1w.
+        if timeframes is None:
+            tech_tfs = YAHOO_TECH_TIMEFRAMES
+        else:
+            tech_tfs = tuple(tf for tf in ("1d", "1w", "1h") if tf in timeframes)
+            if not tech_tfs:
+                tech_tfs = YAHOO_TECH_TIMEFRAMES
+        notes.extend(
+            _download_yahoo_instruments(
+                db,
+                YAHOO_TECH_EQUITY,
+                symbols=symbols,
+                timeframes=tech_tfs,
+                incremental=incremental,
+                derive_4h=False,
+                sleep_s=0.15,
             )
+        )
     return notes
 
+
+def _download_yahoo_tech_equity(
+    db: ResearchCandleDB,
+    *,
+    symbols: set[str] | None = None,
+    timeframes: set[str] | None = None,
+    incremental: bool = True,
+) -> list[str]:
+    """Frozen Nasdaq-100-style equity panel (daily RESEARCH_PROXY via Yahoo)."""
+    if timeframes is None:
+        tfs = YAHOO_TECH_TIMEFRAMES
+    else:
+        tfs = tuple(tf for tf in ("1d", "1w", "1h") if tf in timeframes) or YAHOO_TECH_TIMEFRAMES
+    return _download_yahoo_instruments(
+        db,
+        YAHOO_TECH_EQUITY,
+        symbols=symbols,
+        timeframes=tfs,
+        incremental=incremental,
+        derive_4h=False,
+        sleep_s=0.15,
+    )
 
 def _resolve_binance_symbols(symbols: set[str] | None) -> tuple[str, ...]:
     """Universe symbols, plus any explicitly requested symbols not yet listed."""
@@ -612,9 +693,24 @@ def run(
             )
         )
     if "yahoo" in only:
-        log.info("=== Yahoo daily/weekly cross-checks ===")
+        log.info("=== Yahoo daily/weekly (macros/indices + tech equities) ===")
         all_notes.extend(
-            _download_yahoo(db, symbols=symbols, timeframes=timeframes, incremental=incremental)
+            _download_yahoo(
+                db,
+                symbols=symbols,
+                timeframes=timeframes,
+                incremental=incremental,
+                include_tech_equity=True,
+            )
+        )
+    if "yahoo_tech" in only or "tech_equity" in only:
+        log.info(
+            "=== Yahoo tech equities (frozen NDX-style daily RESEARCH_PROXY) ==="
+        )
+        all_notes.extend(
+            _download_yahoo_tech_equity(
+                db, symbols=symbols, timeframes=timeframes, incremental=incremental
+            )
         )
     if "fred" in only:
         log.info("=== FRED Treasury yields / spreads ===")
@@ -664,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--only",
         default="dukascopy,yahoo,binance,btcd,fred,crypto_macro",
-        help="Comma list: dukascopy,yahoo,binance,btcd,fred,crypto_macro",
+        help="Comma list: dukascopy,yahoo,yahoo_tech,binance,btcd,fred,crypto_macro",
     )
     p.add_argument("--full", action="store_true", help="Ignore incremental cursors; refetch from instrument start")
     p.add_argument(

@@ -107,7 +107,12 @@ class InstrumentCache:
         now = int(time.time() * 1000)
         stale = row is None or (now - row.retrieved_at_ms) > max_age_ms
         if stale and refresh_if_missing:
-            fetched = fetch_instrument(symbol, use_auth=True)
+            # instruments-info is a public endpoint. Auth is optional; a missing
+            # legacy keys file must not crash a live runner.
+            try:
+                fetched = fetch_instrument(symbol, use_auth=True)
+            except Exception:
+                fetched = fetch_instrument(symbol, use_auth=False)
             self.upsert([fetched])
             row = fetched
         if row is None:
@@ -115,4 +120,10 @@ class InstrumentCache:
                 f"no Bybit instrument cache for {symbol!r}; "
                 "run: python -m tradesim.venue refresh --symbols SYMBOL"
             )
-        return row.to_instrument_spec()
+        from .bybit import fetch_risk_limit_tiers
+
+        try:
+            tiers = fetch_risk_limit_tiers(symbol)
+        except Exception:
+            tiers = ()
+        return row.to_instrument_spec(maintenance_tiers=tiers)

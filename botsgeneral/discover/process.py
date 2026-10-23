@@ -25,6 +25,12 @@ def list_screens() -> list[str]:
 
 
 def list_systemd_units() -> list[str]:
+    """Return running service unit names (first column of list-units)."""
+    return [ln.split()[0] for ln in list_systemd_unit_lines() if ln.split()]
+
+
+def list_systemd_unit_lines() -> list[str]:
+    """Full ``systemctl list-units --state=running`` lines (name + description)."""
     if not shutil.which("systemctl"):
         return []
     try:
@@ -35,12 +41,7 @@ def list_systemd_units() -> list[str]:
             timeout=15,
             check=False,
         )
-        units = []
-        for ln in (r.stdout or "").splitlines():
-            parts = ln.split()
-            if parts:
-                units.append(parts[0])
-        return units
+        return [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
     except Exception as e:
         log.debug("systemctl list-units failed: %s", e)
         return []

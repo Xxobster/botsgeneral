@@ -51,21 +51,36 @@ def desired_qty(
     signal_notional: float | None = None,
     signal_risk_fraction: float | None = None,
     spec: InstrumentSpec | None = None,
+    leverage: float | None = None,
+    size_mult: float = 1.0,
 ) -> tuple[float, str]:
     """Raw quantity before any exchange rounding, plus the unit it came from."""
+    mult = max(float(size_mult), 0.0)
+    if mult <= 0:
+        raise ValueError("size_mult must be positive")
+
     if signal_qty is not None:
-        return float(signal_qty), "signal_qty"
+        return float(signal_qty) * mult, "signal_qty"
     if signal_notional is not None:
-        return float(signal_notional) / price, "signal_notional"
+        return float(signal_notional) * mult / price, "signal_notional"
 
     if cfg.mode == SizingMode.FIXED_QTY:
-        return float(cfg.fixed_qty), "fixed_qty"
+        return float(cfg.fixed_qty) * mult, "fixed_qty"
     if cfg.mode == SizingMode.FIXED_NOTIONAL:
-        return float(cfg.fixed_notional) / price, "fixed_notional"
+        return float(cfg.fixed_notional) * mult / price, "fixed_notional"
     if cfg.mode == SizingMode.MIN_EXCHANGE:
         if spec is None:
             raise ValueError("sizing mode min_exchange needs an InstrumentSpec")
-        return minimum_executable_qty(spec, price), "min_exchange"
+        return minimum_executable_qty(spec, price) * mult, "min_exchange"
+    if cfg.mode == SizingMode.EQUITY_LEVERAGE_NOTIONAL:
+        lev = float(leverage) if leverage is not None and leverage > 0 else 1.0
+        frac = float(cfg.equity_fraction)
+        if frac <= 0:
+            raise ValueError("equity_fraction must be positive")
+        if equity <= 0:
+            raise ValueError("equity must be positive for equity_leverage_notional")
+        notional = float(equity) * frac * lev * mult
+        return notional / price, "equity_leverage_notional"
 
     risk_per_unit = None if stop_price is None else abs(price - stop_price)
     if not risk_per_unit:
@@ -75,9 +90,9 @@ def desired_qty(
         )
     if cfg.mode == SizingMode.RISK_FRACTION:
         frac = signal_risk_fraction if signal_risk_fraction is not None else cfg.risk_fraction
-        return (equity * float(frac)) / risk_per_unit, "risk_fraction"
+        return (equity * float(frac) * mult) / risk_per_unit, "risk_fraction"
     if cfg.mode == SizingMode.FIXED_RISK_CASH:
-        return float(cfg.fixed_risk_cash) / risk_per_unit, "fixed_risk_cash"
+        return float(cfg.fixed_risk_cash) * mult / risk_per_unit, "fixed_risk_cash"
     raise ValueError(f"unhandled sizing mode {cfg.mode}")
 
 

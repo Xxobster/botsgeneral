@@ -1,5 +1,37 @@
 # Decisions
 
+## 2026-10-05 — Public HMI shows ln1 + ln2 only; rank by pair
+
+The bots website ranks live units by **bot + pair** (not strategy-only),
+sorted by profit factor. SM (`212.73.150.149`) and LN3 (`185.203.119.52`)
+are omitted from the public page even if their agents still run.
+Winner **Avg PnL** is mean realized PnL per closed round-trip on that pair.
+Winner **Equity** is the current account total equity (not pair-isolated).
+
+## 2026-09-24 — Fleet HMI at site root on ln1 (bots94.duckdns.org)
+
+Public HMI is served at **`/`** on **ln1** `94.156.189.76` (not `/bots`),
+via DuckDNS **`bots94.duckdns.org`** with Let's Encrypt. `sm` keeps only the
+localhost agent; it must not expose a public bots page.
+
+## 2026-09-04 — Fleet HMI: per-VPS agent + hub, not keys on the web host
+
+Bybit keys stay on the trading Virtual Private Server that already holds them.
+Each host exposes a localhost JSON agent; the **hub** (now ln1 `94.156.189.76`)
+aggregates over SSH (dedicated `hmi_hub` key) and serves the site root behind
+nginx HTTP basic auth. Closed Profit and Loss is cached incrementally in SQLite
+on each agent so a page load only fetches new closes + live wallet/positions +
+host metrics. The same Xxobster account on two hosts is merged (union of
+strategies and deduped trades). Strategy text is a static catalog shipped
+in-repo, not a live readiness claim.
+
+## 2026-08-03 — Hedge mode is opt-in; default stays one-way
+
+- Default `position_mode=ONE_WAY`: at most one open position per symbol.
+- Opt-in `position_mode=HEDGE` / `research_sim_hedge()`: independent long and short
+  books (`max_positions_per_side`, default 1 each), each with its own TP/SL.
+- Match live account mode; do not backtest hedge if live is one-way.
+
 ## 2026-08-03 — Shared `indicators` package is the only price-structure calculator
 
 - New package: `C:\projects\botsgeneral\packages\indicators`.

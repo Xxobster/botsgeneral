@@ -146,6 +146,9 @@ indicators update --symbol BTCUSDT --timeframe 1h
   (`SKIP_LIMIT_WOULD_CROSS`), not silently turned into taker markets. Do **not** use
   maker assumptions to rescue a failing all-taker baseline without fill evidence.
   Details: `TRADESIM_BACKTEST_ENGINE_GUIDE.md` §3.1.
+- **Hedge (long + short together):** `research_sim_hedge()` or
+  `SimConfig(position_mode="hedge", max_positions_per_side=1)`. Each side keeps its own
+  TP/SL. Default remains one-way (second signal skipped). Guide §3.2.
 - Try multiple / multi timeframes (fractal markets).
 - Both long and short preferred; long-only or short-only OK if reason is clear (bull bias caveat).
 - After BTC/ETH winners: optimize SOL, VET, BNB, XRP, TRX, DOGE, XLM, ADA with **per-coin best params**.

@@ -15,7 +15,12 @@ from typing import Literal
 import pandas as pd
 import requests
 
-from market_data.fetch_binance import BinanceBlockedError, fetch_klines
+from market_data.fetch_binance import (
+    BinanceBlockedError,
+    drop_incomplete_bars,
+    drop_junk_bars,
+    fetch_klines,
+)
 
 log = logging.getLogger(__name__)
 
@@ -221,5 +226,8 @@ def fetch_klines_vision(
         out = out[out["ts_ms"] >= int(start_ms)]
     if end_ms is not None and not out.empty:
         out = out[out["ts_ms"] <= int(end_ms)]
+    # Same closed-bar + junk policy as REST fetch_klines (research ↔ live identity)
+    out = drop_incomplete_bars(out, timeframe)
+    out = drop_junk_bars(out)
     log.info("Vision+REST %s/%s %s %s -> %s bars", market, price_type, symbol, timeframe, len(out))
     return out.reset_index(drop=True)

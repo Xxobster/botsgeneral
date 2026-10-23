@@ -963,6 +963,71 @@ def build() -> dict[str, dict[str, Any]]:
         },
     )
 
+    # ================================================================== EXEC-021 ======
+    # Resting buy limit 98. Decision bar 1 opens at 100, high 103, low 98.
+    # 15-second path: 103 first (would be take-profit if already in), then 98 (fill).
+    # Fill at 98; take-profit 103 does not pay. Next minute's low 94 hits stop 95.
+    #   entry maker fee = 1 * 98.00 * 0.0004 = 0.0392
+    #   exit taker fee  = 1 * 95.00 * 0.001  = 0.095
+    #   gross = 95 - 98 = -3.00
+    #   realized = -3.00 - 0.0392 - 0.095 = -3.1342
+    f["EXEC-021_tp_before_limit_is_not_a_fill"] = fixture(
+        ["EXEC-021"],
+        "A take-profit print before the 1-minute limit touch is not a winning fill",
+        rationale=(
+            "The decision bar's range includes both 103 and 98. An engine that treats "
+            "the limit as filled at the 4-hour/1-minute open books a target at 103. "
+            "The 15-second path touches 103 first, then 98: fill is 98, then stop 95."
+        ),
+        bars=[
+            QUIET_SIGNAL_BAR,
+            [TF, 100.0, 103.0, 98.0, 99.0],
+            [2 * TF, 98.0, 99.0, 94.0, 95.0],
+        ],
+        touch_bars={
+            "timeframe_ms": 15_000,
+            "rows": [
+                [TF + 0, 100.0, 103.0, 100.0, 103.0],
+                [TF + 15_000, 103.0, 103.0, 102.0, 102.0],
+                [TF + 30_000, 102.0, 102.0, 98.0, 98.0],
+                [TF + 45_000, 98.0, 99.0, 97.5, 98.0],
+                [2 * TF + 0, 98.0, 99.0, 97.0, 98.0],
+                [2 * TF + 15_000, 98.0, 98.5, 96.0, 97.0],
+                [2 * TF + 30_000, 97.0, 97.0, 94.0, 95.0],
+                [2 * TF + 45_000, 95.0, 95.5, 94.5, 95.0],
+            ],
+        },
+        signals=[
+            {
+                "ts_ms": 0,
+                "side": 1,
+                "stop_price": 95.0,
+                "target_price": 103.0,
+                "entry_order": "limit",
+                "limit_price": 98.0,
+            }
+        ],
+        sim={"entry_order": "limit", "decision_timeframe": "1m"},
+        expect={
+            "n_trades": 1,
+            "trades": [
+                {
+                    "entry_price": 98.0,
+                    "exit_price": 95.0,
+                    "exit_reason": "stop",
+                    "entry_fee": 0.0392,
+                    "exit_fee": 0.095,
+                    "gross_pnl": -3.0,
+                    "realized_pnl": -3.1342,
+                    "hold_bars": 1,
+                    "entry_bar_exit": False,
+                    "resolved_by_touch": True,
+                    "exit_ts_ms": 2 * TF,
+                }
+            ],
+        },
+    )
+
     # ================================================================== FUND-001 ======
     # Positive rate: the long pays. Settlement at 120000, mark = bar 2's open = 100.00.
     #   cashflow = -1 * 1 * 100 * 0.001 = -0.10

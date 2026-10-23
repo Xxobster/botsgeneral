@@ -17,9 +17,10 @@ usage() {
 bots — fleet health + PnL report (botsgeneral)
 
 Usage:
-  bots                         Full report (bots OK + PnL since date, by account/coin)
+  bots                         Full report (bots OK + PnL since date/time, by account/coin)
   bots report                  Same as above
-  bots trades <acct|bot> [SYM] Trade drilldown (e.g. bots trades xgb BTCUSDT)
+  bots trades <acct|bot> [SYM] Trade drilldown (e.g. bots trades tsm_chandelier BTCUSDT)
+  bots hmi-snapshot            JSON snapshot for the fleet web Human-Machine Interface
   bots sitrep                  Host + bot process + candle freshness only
   bots pnl                     Quick wallet / open positions
   bots discover                Which candle pairs the collector is serving
@@ -28,13 +29,14 @@ Usage:
 
 Examples:
   bots
-  bots trades Xxobster2
-  bots trades xgb ETHUSDT
+  bots trades Xxobster7
+  bots trades tsm_chandelier ETHUSDT
   bots trades crypthor2 BTCUSDT
 
 Config:
-  Since date:  /etc/botsgeneral/report.yaml   (since_date: "2026-07-09")
-  Bybit keys:  /etc/botsgeneral/bybit_keys.txt (+ /home/xgb/config/api_keys.json merged)
+  Since:       /etc/botsgeneral/report.yaml   (since_date / since_by_account / since_by_bot;
+               YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
+  Bybit keys:  /etc/botsgeneral/bybit_keys.txt
 EOF
 }
 
@@ -47,7 +49,7 @@ case "$1" in
     usage
     exit 0
     ;;
-  trades|sitrep|pnl|discover|report|backfill)
+  trades|sitrep|pnl|discover|report|backfill|hmi-snapshot|hmi-agent|hmi-hub)
     exec "$PY" -m botsgeneral "$@"
     ;;
   *)

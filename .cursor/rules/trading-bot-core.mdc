@@ -90,6 +90,8 @@ prefer_botsgeneral_tradesim()  # forces C:\projects\botsgeneral\packages\tradesi
   `Signal.entry_order="limit"` + optional `limit_price`/`limit_offset`). Maker fee, no entry
   slip; Post-Only semantics (crossing → skip). Guide §3.1. Do not use maker to rescue a
   failing all-taker baseline without evidence.
+- **Hedge long+short:** `research_sim_hedge()` / `position_mode="hedge"` — one long and one
+  short may be open together, each with its own TP/SL. Default remains one-way. Guide §3.2.
 
 ## indicators — shared Fibonacci price-structure warehouse (Xxobster stack)
 

@@ -92,6 +92,35 @@ class EntryOrder(str, Enum):
         raise ValueError(f"unrecognised entry_order {value!r}")
 
 
+class PositionMode(str, Enum):
+    """How many positions may be open on one symbol at once.
+
+    ``ONE_WAY``  Default. At most ``max_positions_per_symbol`` open trades on the symbol
+                 (usually 1). A second signal is skipped while one is open — including an
+                 opposite-side signal. Matches Bybit one-way / netting accounts.
+    ``HEDGE``    Independent long and short books on the same symbol (Bybit hedge mode).
+                 Each side may hold up to ``max_positions_per_side`` trades, each with its
+                 own take-profit and stop-loss. Opening a long does not flatten or block a
+                 short, and vice versa.
+    """
+
+    ONE_WAY = "one_way"
+    HEDGE = "hedge"
+
+    @classmethod
+    def coerce(cls, value: "PositionMode | str | None") -> "PositionMode":
+        if value is None:
+            return cls.ONE_WAY
+        if isinstance(value, cls):
+            return value
+        key = str(value).strip().lower().replace("-", "_")
+        if key in ("one_way", "oneway", "net", "netting"):
+            return cls.ONE_WAY
+        if key in ("hedge", "hedged", "dual", "both_sides"):
+            return cls.HEDGE
+        raise ValueError(f"unrecognised position_mode {value!r}")
+
+
 class SameBarPolicy(str, Enum):
     """What to do when one bar contains both a favourable and an adverse trigger."""
 
@@ -113,6 +142,9 @@ class SizingMode(str, Enum):
     # Smallest venue-legal order: max(min_qty, min_notional / price), rounded up to step.
     # Preferred for research when absolute dollar PnL is secondary to path metrics.
     MIN_EXCHANGE = "min_exchange"
+    # notional = equity * equity_fraction * leverage  (wallet-linked; compound when enabled).
+    # Margin posted ≈ equity * equity_fraction. Use when wallet % is a valid headline.
+    EQUITY_LEVERAGE_NOTIONAL = "equity_leverage_notional"
 
 
 class LiquidationStatus(str, Enum):
@@ -384,6 +416,8 @@ class SizingConfig:
     fixed_notional: float = 1000.0
     risk_fraction: float = 0.005
     fixed_risk_cash: float = 50.0
+    # Used by EQUITY_LEVERAGE_NOTIONAL: notional = equity * equity_fraction * leverage.
+    equity_fraction: float = 0.01
     # Multiplies the minimum executable quantity when checking feasibility, so a trade
     # that is only just executable is skipped rather than left with no headroom.
     min_qty_safety_buffer: float = 1.0
@@ -455,8 +489,15 @@ class SimConfig:
     # Project default (2026-07-26): stop-loss is a limit at the level, no exit slip, assumed
     # to fill at small size. Set True to model a stop-market that gaps through and slips.
     stop_is_stop_market: bool = False
+    # Position book. ``HEDGE`` = long and short open together, each with own TP/SL.
+    position_mode: PositionMode = PositionMode.ONE_WAY
+    # Legacy/one-way: when False, at most one open position per symbol regardless of
+    # ``max_positions_per_symbol``. When True (or ``position_mode=HEDGE``), the numeric
+    # caps below apply.
     allow_concurrent_positions: bool = False
     max_positions_per_symbol: int = 1
+    # Hedge mode only: max open trades per side (long book and short book separately).
+    max_positions_per_side: int = 1
     close_at_end_of_data: bool = True
     # Charge funding settlements that fall inside the exit bar when sub-bar timing is
     # unknown. "bar_end" is the adverse-cost resolution; "bar_start" is the exact
@@ -694,6 +735,12 @@ class Trade:
     # Planned take-profit ladder at open: (label, price, qty_fraction). Empty when single TP
     # is only in ``target_price``.
     tp_levels: tuple[tuple[str, float, float], ...] = ()
+    # Frozen copy of ``Signal.meta`` at open (e.g. LLM ``pred_mean``, size_mult, book_idx).
+    meta: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Immutable snapshot so callers cannot mutate shared dicts after the trade closes.
+        object.__setattr__(self, "meta", dict(self.meta or {}))
 
     @property
     def entry_notional(self) -> float:

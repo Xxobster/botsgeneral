@@ -48,7 +48,7 @@ the engine only executes the trade list of each fold.
 
 | Setting | Frozen default |
 |---|---|
-| Entry | **Market (default):** next open + entry slippage + **taker** fee. **Limit (opt-in):** fill at limit when touched, **maker** fee, **no** entry slip (`research_limit_entry_costs` + `research_sim_limit_entry` / `Signal.entry_order`) |
+| Entry | **Market (default):** next open + entry slippage + **taker** fee. **Limit (opt-in):** fill at limit when touched, **maker** fee, **no** entry slip. **Position mode:** one-way default; **hedge** opt-in for long+short together (`research_sim_hedge`) |
 | Take-profit | **Limit** order → fill **at the TP price** when touched. **No exit slippage** |
 | Stop-loss | **Limit** order → fill **at the SL price** when touched. **No exit slippage** |
 | Fees | **Taker** on every fill by default (Bybit non-VIP **0.055%** = `0.00055`). Limit entry / proven resting TP may use **maker** **0.02%** = `0.0002` |

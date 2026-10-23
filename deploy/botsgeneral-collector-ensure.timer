@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic ensure for botsgeneral candle collector (always-on)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Persistent=true
+Unit=botsgeneral-collector-ensure.service
+
+[Install]
+WantedBy=timers.target

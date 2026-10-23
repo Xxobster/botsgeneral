@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Xxobster bots — fleet HMI</title>
+  <base href="/" />
+  <!-- No tab icon: blank data URI so browsers do not fall back to site /favicon.ico. -->
+  <link rel="icon" href="data:," />
+  <link rel="shortcut icon" href="data:," />
+  <link rel="stylesheet" href="style.css?v=20261005b" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark">Xx</span>
+      <div>
+        <h1>Bots Human-Machine Interface</h1>
+        <p class="sub">Xxobster accounts · all Virtual Private Servers (VPS)</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div id="status" class="status">Loading…</div>
+      <button type="button" id="btn-refresh">Refresh all VPS</button>
+    </div>
+  </header>
+
+  <section id="hosts" class="hosts" aria-label="Server metrics"></section>
+
+  <section class="totals" id="totals" hidden>
+    <div class="t-card"><span>Accounts</span><b id="t-accounts">—</b></div>
+    <div class="t-card"><span>Open positions</span><b id="t-open">—</b></div>
+    <div class="t-card"><span>Closed round-trips</span><b id="t-trades">—</b></div>
+    <div class="t-card"><span>Realized Profit and Loss (PnL)</span><b id="t-real">—</b></div>
+    <div class="t-card"><span>Open unrealized</span><b id="t-upl">—</b></div>
+    <div class="t-card"><span>Combined</span><b id="t-comb">—</b></div>
+    <div class="t-card"><span>Equity</span><b id="t-eq">—</b></div>
+  </section>
+
+  <section class="fleet board" id="winners-sec">
+    <div class="section-h">
+      <h2>Best winners by pair</h2>
+    </div>
+    <p class="section-note">One row per Virtual Private Server (VPS) + bot + pair. Sorted by profit factor (PF). SM and LN3 are hidden.</p>
+    <div class="table-wrap winners" id="winners-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="l">VPS</th>
+            <th class="l">Bot</th>
+            <th class="l">Pair</th>
+            <th class="l">Account</th>
+            <th>Trades</th>
+            <th>Days</th>
+            <th>Trades/day</th>
+            <th>PnL</th>
+            <th>WR</th>
+            <th>PF</th>
+            <th>RF</th>
+            <th>Max DD</th>
+            <th>Payoff</th>
+            <th>Avg PnL/trade</th>
+            <th>Equity</th>
+          </tr>
+        </thead>
+        <tbody id="pair-winners"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="fleet board" id="active-sec">
+    <div class="section-h">
+      <h2>Open positions</h2>
+    </div>
+    <div class="table-wrap compact" id="active-trades-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="l">Account</th>
+            <th class="l">Bot</th>
+            <th class="l">Pair</th>
+            <th class="l">Side</th>
+            <th>Size</th>
+            <th>Entry</th>
+            <th>Mark</th>
+            <th>Unrealized PnL</th>
+            <th>Conf %</th>
+            <th>Risk %</th>
+            <th>Lev</th>
+            <th class="l">Nearer exit</th>
+          </tr>
+        </thead>
+        <tbody id="active-trades"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="fleet board" id="recent-sec">
+    <div class="section-h">
+      <h2>Last 10 closed round-trips</h2>
+    </div>
+    <div class="table-wrap compact" id="recent-trades-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="l">Close (UTC)</th>
+            <th class="l">Account</th>
+            <th class="l">Bot</th>
+            <th class="l">Pair</th>
+            <th class="l">Side</th>
+            <th>Qty</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>PnL</th>
+            <th>Conf %</th>
+            <th>Risk %</th>
+          </tr>
+        </thead>
+        <tbody id="recent-trades"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="fleet">
+    <div class="section-h">
+      <h2>Accounts</h2>
+      <input id="filter-acct" type="search" placeholder="Filter account or pair…" />
+    </div>
+    <div id="cards" class="cards"></div>
+  </section>
+
+  <div id="detail" class="detail" hidden>
+    <div class="detail-inner">
+      <button type="button" class="close" id="btn-close" aria-label="Close">×</button>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20261010side"></script>
+</body>
+</html>

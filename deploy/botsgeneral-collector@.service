@@ -2,6 +2,8 @@
 Description=botsgeneral shared candle collector
 After=network-online.target
 Wants=network-online.target
+# Never rate-limit restarts — always bring the collector back
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -15,6 +17,8 @@ Environment=PYTHONPATH=/opt/botsgeneral
 ExecStart=/opt/botsgeneral/venv/bin/python -m botsgeneral collect
 Restart=always
 RestartSec=5
+KillMode=control-group
+TimeoutStopSec=30
 Nice=5
 
 # Enable with: systemctl enable --now botsgeneral-collector@94.156.189.76

@@ -70,6 +70,7 @@ Walk-forward, train/test splits and feature building stay in the strategy / rese
 | Funding | Actual historical funding rates at each settlement while the position is open (not a flat average). |
 | Same candle hits both TP and SL | Resolve on a **lower timeframe**. If both still hit on one lower bar → **SL wins**. |
 | Entry bar | SL and TP are active from the fill instant on that same bar. **No free bar of immunity.** |
+| Position mode | **One-way (default):** at most one open trade per symbol. **Hedge (opt-in):** long and short open together, each with its own TP/SL. See §3.2. |
 
 ### 3.1 Limit entry (maker fee, no slippage)
 
@@ -126,6 +127,60 @@ from tradesim import research_costs, Liquidity
 costs = research_costs(take_profit_liquidity=Liquidity.MAKER)
 # or: costs = research_costs().with_role_liquidity(take_profit=Liquidity.MAKER)
 ```
+
+### 3.2 Hedge mode — long and short at the same time
+
+Default research is **one-way**: a second signal on the same symbol is skipped while a
+position is open (including an opposite-side signal).
+
+To hold **one long and one short together**, each with its own take-profit and stop-loss
+(Bybit hedge / dual-side book):
+
+```python
+from tradesim import (
+    Signal, Side, run_backtest, research_sim_hedge, research_costs, research_margin,
+)
+
+sim = research_sim_hedge()  # position_mode=HEDGE, max_positions_per_side=1
+
+signals = [
+    Signal(ts_ms=t, side=Side.LONG,  stop_offset=0.01, target_offset=0.02),
+    Signal(ts_ms=t, side=Side.SHORT, stop_offset=0.01, target_offset=0.02),
+]
+
+bundle = run_backtest(
+    strategy_id="hedge-example",
+    bars=bars,
+    signals=signals,
+    costs=research_costs(),
+    margin=research_margin(leverage=1.0),  # size margin for *both* books
+    sim=sim,
+)
+```
+
+Or set fields explicitly:
+
+```python
+from tradesim import SimConfig, PositionMode
+
+sim = SimConfig(
+    position_mode=PositionMode.HEDGE,  # or "hedge"
+    allow_concurrent_positions=True,
+    max_positions_per_side=1,          # one long book + one short book
+    max_positions_per_symbol=2,
+)
+```
+
+**Behaviour:**
+
+| Case | Result |
+|---|---|
+| Long open, short signal | Opens short (own TP/SL); long stays open |
+| Long open, second long | `SKIP_POSITION_LIMIT` (per-side cap) |
+| Both signal on same decision bar | Both fill next open (longs scheduled before shorts); each resolves exits independently |
+| Funding / margin | Charged per open position; shared wallet must cover both initial margins |
+
+Match live account mode: do **not** backtest hedge if the live bot is one-way.
 
 ### Entry slippage only (market entries)
 

@@ -28,6 +28,15 @@ exercise is to find out which.
 
 ## Now
 
+- [x] Winners table Avg PnL/trade + current equity (2026-10-05)
+- [x] HMI pair winners by bot+pair + hide SM/LN3 on https://bots94.duckdns.org/ (2026-10-05)
+- [x] HMI at site root on ln1 → `https://bots94.duckdns.org/` + `http://94.156.189.76/` (2026-09-24)
+- [x] Remove public HMI from sm `212.73.150.149` (2026-09-24)
+- [x] HMI hub restored on ln1 `94.156.189.76` (2026-09-24; path later moved off `/bots`)
+- [x] Point DuckDNS / issue TLS: `https://bots94.duckdns.org/` (2026-09-24)
+- [x] HMI conf%/risk% on trades + PF/RF/PnL colors (2026-09-06)
+- [x] HMI main page: active trades, last 10 trades, PnL axes, closed-trade counts (2026-09-06)
+- [x] Fleet Human-Machine Interface (hub now ln1; was sm) (2026-09-04 / 2026-09-24)
 - [x] Shared `indicators` package + warehouse (`D:\projectsdata\indicators\indicators.sqlite`)
 - [x] Install per-VPS public keys (`ln1`/`ln2`/`ln3`/`sm`) into root `authorized_keys` (verified 2026-08-02)
 - [ ] Finish / verify first full research candle download → `D:\projectsdata\candles\coverage.csv`
@@ -41,7 +50,7 @@ exercise is to find out which.
 ## Later
 
 - [ ] Optional Binance WS for news pairs (today REST poll; WS preferred per RULES)
-- [ ] Richer sitrep: per-bot trade-log summary when bots expose shared trade DBs
+- [x] Richer sitrep: fleet HMI (`/bots`) with trades, curves, host CPU/mem/disk
 - [ ] Alerting when candle lag stale or bot DOWN
 - [ ] W.I.P GitHub remote if missing
 - [ ] Scheduled incremental refresh of research candles (Windows task)

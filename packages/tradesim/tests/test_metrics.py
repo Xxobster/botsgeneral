@@ -22,6 +22,7 @@ from tradesim.metrics import (
     max_drawdown,
     profit_factor,
     sharpe,
+    simultaneous_open_stats,
     wilson_interval,
 )
 
@@ -325,3 +326,111 @@ def test_backtesting_py_compatible_stats_include_durations_and_sides(
     assert "Max. Trade Duration" in stats
     assert "Min. Trade Duration" in stats
     assert "hold bars" in headline_table(report)
+    assert "simultaneous open" in headline_table(report)
+    assert "exits" in headline_table(report)
+    assert stats["Max Simultaneous Trades"] >= 1
+    assert "# Exits TP" in stats
+    assert stats["# Exits TP"] + stats["# Exits SL"] + stats["# Exits Other"] == stats["# Trades"]
+
+
+def test_exit_reason_stats_tp_sl_other():
+    from tradesim.contracts import Trade
+    from tradesim.metrics import exit_reason_stats
+
+    def mk(tid, reason):
+        return Trade(
+            trade_id=tid,
+            symbol="T",
+            side=1,
+            entry_ts_ms=tid * 10,
+            entry_price=100.0,
+            entry_ref_price=100.0,
+            qty=1.0,
+            stop_price=95.0,
+            target_price=110.0,
+            liquidation_price=None,
+            leverage=1.0,
+            initial_margin=10.0,
+            exit_ts_ms=tid * 10 + 5,
+            exit_price=110.0,
+            exit_reason=reason,
+            hold_bars=1,
+            fees=0.0,
+            funding=0.0,
+            slippage_cost=0.0,
+            gross_pnl=1.0,
+            realized_pnl=1.0,
+            return_units=0.01,
+            mae=0.0,
+            mfe=0.0,
+            ambiguous_intrabar=False,
+            resolved_by_touch=False,
+            entry_bar_exit=reason.endswith("_entry_bar"),
+        )
+
+    trades = [
+        mk(1, "target"),
+        mk(2, "target_entry_bar"),
+        mk(3, "stop"),
+        mk(4, "trailing_stop"),
+        mk(5, "max_hold"),
+        mk(6, "liquidation"),
+    ]
+    n_tp, n_sl, n_other, counts = exit_reason_stats(trades)
+    assert n_tp == 2
+    assert n_sl == 2
+    assert n_other == 2
+    assert counts["target"] == 2  # base_reason strips entry_bar
+    assert counts["stop"] == 1
+    assert counts["max_hold"] == 1
+
+
+def test_simultaneous_open_stats_max_and_average_by_side():
+    """Two overlapping longs max=2; disjoint shorts max=1; averages time-weighted."""
+    from tradesim.contracts import Trade
+
+    def mk(tid, side, e, x):
+        return Trade(
+            trade_id=tid,
+            symbol="T",
+            side=side,
+            entry_ts_ms=e,
+            entry_price=100.0,
+            entry_ref_price=100.0,
+            qty=1.0,
+            stop_price=95.0,
+            target_price=110.0,
+            liquidation_price=None,
+            leverage=1.0,
+            initial_margin=10.0,
+            exit_ts_ms=x,
+            exit_price=110.0,
+            exit_reason="target",
+            hold_bars=1,
+            fees=0.0,
+            funding=0.0,
+            slippage_cost=0.0,
+            gross_pnl=1.0,
+            realized_pnl=1.0,
+            return_units=0.01,
+            mae=0.0,
+            mfe=0.0,
+            ambiguous_intrabar=False,
+            resolved_by_touch=False,
+            entry_bar_exit=False,
+        )
+
+    trades = [
+        mk(1, 1, 0, 10),
+        mk(2, 1, 5, 15),
+        mk(3, -1, 20, 30),
+    ]
+    max_t, avg_t, max_l, avg_l, max_s, avg_s = simultaneous_open_stats(trades)
+    assert max_t == 2
+    assert max_l == 2
+    assert max_s == 1
+    # span [0, 30): total exposures 1*5 + 2*5 + 1*5 + 0*5 + 1*10 = 30 → avg 1.0
+    assert avg_t == pytest.approx(1.0)
+    # longs only: 1*5 + 2*5 + 1*5 = 20 over 30
+    assert avg_l == pytest.approx(20.0 / 30.0)
+    assert avg_s == pytest.approx(10.0 / 30.0)

@@ -1,0 +1,409 @@
+# Static strategy catalog for the bots Human-Machine Interface (HMI).
+# Summaries are from C:/projects and D:/projects live/research docs. Not live-readiness claims.
+
+families:
+  llm2:
+    title: Large Language Model 2 (LLM2) live packs
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Structure and formula packs from D:/projects/LLM2. Signals use Binance
+      USD-M Last candles (shared collector). Orders execute on Bybit USDT linear
+      perpetuals. Typical live size is 5% of equity at the bar stop, floored to
+      the venue minimum, leverage about 13× from a 3% stop cap. Many units are
+      Post-Only fill tests, not Shadow-Ready.
+    rules:
+      - Close-based decision on the pack timeframe (15-minute pivot or 1-hour formula).
+      - Limit / Post-Only entry when the pack says LIMIT; skip if the limit would cross.
+      - Protective stop and take-profit on Bybit after fill.
+
+  tsm_chandelier:
+    title: The Secret Mindset chandelier (1-hour)
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Chandelier-stop trend follower from D:/projects/smartmoney (deploy/tsm_chandelier).
+      Live on Bitcoin, Ether, Solana 1-hour, account Xxobster6, minimum exchange size.
+      Binance Last candles via the shared collector; Bybit execution.
+    rules:
+      - 1-hour closed bar.
+      - Chandelier (Average True Range trail) defines the stop / flip.
+      - Isolated USDT perpetual, take-profit / stop-loss on the exchange.
+
+  tsm_vpa:
+    title: The Secret Mindset Volume Price Analysis
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Daily effort-versus-result Volume Spread Analysis from D:/projects/TSM-VPA
+      and D:/projects/smartmoney. Nested out-of-sample collapsed after the entry-bar
+      stop defect was fixed (about 48% of signals stopped on the entry day). Live
+      observation is VETUSDT only, minimum size, account Xxobster5.
+    rules:
+      - Daily closed bar, entry at next open.
+      - Stop just beyond the signal-bar extreme; take-profit at a fixed reward:risk.
+      - Entry bar is NOT immune — stop/target resolve on the fill bar.
+
+  crypthor:
+    title: Market Profile mean-reversion (crypthor2 / mp_oos)
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Long-only Market Profile from C:/projects/crypthor2. Daily TPO value area
+      (VAL/VAH/POC) on 5-minute bars; 15-minute signals. Long when the day opens at
+      or below VAL, Fibonacci pivot is inside value, 1-hour stochastic turns bullish,
+      value area is wide enough, close is below VAH. Optional daily EMA200 regime.
+      Exits: partial take-profit 1, optional take-profit 2, final take-profit at
+      VAH + 1.8%, percent stop; stop-to-breakeven after take-profit 1.
+    rules:
+      - Enter next 15-minute open after the signal bar.
+      - One trade per calendar day (classic variant).
+      - Per-coin configs; never share Bitcoin parameters with Ether.
+
+  karmaa_mp:
+    title: Market Profile (karmaa_mp)
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Market Profile live bot from C:/projects/karmaa_mp on account Xxobster5
+      (separate from TSM-VPA on the same account family). 5-minute source with
+      1-hour / 4-hour context. Bybit USDT perpetual.
+    rules:
+      - Value-area / profile structure with higher-timeframe filters.
+      - Exchange take-profit / stop-loss.
+
+  divergences:
+    title: Regular / hidden divergence
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Divergence continuation / confluence from C:/projects/divergences.
+      Bitcoin 4-hour confirmation and Ether 1-hour continuation historically on
+      Xxobster3; Ether 1-hour confluence on Xxobster6. Bybit candles.
+    rules:
+      - Divergence between price and oscillator on the configured timeframe.
+      - Confirmation / confluence filters before entry.
+
+  news:
+    title: News / crypto_alpha
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Event-driven bot from C:/projects/news (crypto_alpha) on Xxobster6.
+      Binance Last candles; Bybit execution. Own pull historically; shared
+      collector when migrated.
+    rules:
+      - Headline / event gates then a directional trade with exchange exits.
+
+  xgb:
+    title: Extreme Gradient Boosting (retired live)
+    readiness: REMOVED
+    summary: >
+      Tree model live from C:/projects/xgb. Xxobster2 retired 2026-08-25 on
+      live-network-1. Match-parity tree (xgb_match / Xxobster13) may still exist
+      as a separate tree. Not a current HMI headline bot unless the process is up.
+
+  ld:
+    title: Liquidity / LD
+    readiness: LIVE_STOP / RESEARCH_ONLY
+    summary: >
+      Liquidity-direction live from D:/projects/LD. Shared Binance 1-hour Last
+      for Bitcoin / Ether / Solana / BNB. Account groups Xxobster9 / 10 / 11.
+    rules:
+      - 1-hour closed bar; higher-timeframe features resample from 1-hour.
+
+  other:
+    title: Other
+    summary: See registry notes for this unit.
+
+bots:
+  llm2_pivot_sol_geo:
+    family: llm2
+    title: Solana 15-minute pivot geo p75 (w4)
+    timeframe: 15m
+    symbols: [SOLUSDT]
+    signal_venue: binance
+    summary: >
+      Pivot pack pivot_sol_geo_tp1_sl1_p75_w4. Limit entry, min exchange size.
+      Live-network-1 uses Xxobster7; live-network-2 uses the same pack on Xxobster8.
+    rules:
+      - 15-minute pivot geometry; take-profit / stop about 1%.
+      - Post-Only / limit; skip crossing quotes.
+
+  llm2_pivot_eth_ctrl:
+    family: llm2
+    title: Ether 15-minute pivot control Average True Range (w4)
+    timeframe: 15m
+    symbols: [ETHUSDT]
+    signal_venue: binance
+    summary: >
+      Pivot pack pivot_eth_p75_ctrl_atr_w4. Limit entry. Xxobster7 on
+      live-network-1, Xxobster8 on live-network-2.
+    rules:
+      - 15-minute pivot with Average True Range control.
+      - Limit / Post-Only.
+
+  llm2_pivot_eth_p50:
+    family: llm2
+    title: Ether 15-minute pivot p50 (0.5% brackets)
+    timeframe: 15m
+    symbols: [ETHUSDT]
+    signal_venue: binance
+    summary: >
+      pivot_eth_p50_tp05_sl05 on Xxobster9 (live-network-2). Tighter 0.5%
+      take-profit / stop versus the p75 control pack.
+
+  llm2_pivot_sol_p50:
+    family: llm2
+    title: Solana 15-minute pivot p50 (0.5% brackets)
+    timeframe: 15m
+    symbols: [SOLUSDT]
+    signal_venue: binance
+    summary: >
+      pivot_sol_p50_tp05_sl05 on Xxobster9 (live-network-2), paired with the
+      Ether p50 unit on the same account.
+
+  llm2_ema_sol_1h:
+    family: llm2
+    title: Solana 1-hour Exponential Moving Average stack
+    timeframe: 1h
+    symbols: [SOLUSDT]
+    signal_venue: binance
+    summary: >
+      sol_1h_power_ema_stack_long, Post-Only, account Xxobster4 on live-network-1.
+      5% equity stop-risk, floor 0.1 Solana, about 13× from a 3% cap. Start
+      2026-09-01. RESEARCH_ONLY fill test.
+    local_path: D:/projects/LLM2/artifacts/live_packs/sol_1h_power_ema_stack_long
+
+  llm2_ema_btc_1h:
+    family: llm2
+    title: Bitcoin 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [BTCUSDT]
+    signal_venue: binance
+    summary: >
+      btc_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/btc_1h_power_ema_stack_long_min
+
+  llm2_ema_eth_1h:
+    family: llm2
+    title: Ether 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [ETHUSDT]
+    signal_venue: binance
+    summary: >
+      eth_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/eth_1h_power_ema_stack_long_min
+
+  llm2_ema_bnb_1h:
+    family: llm2
+    title: BNB 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [BNBUSDT]
+    signal_venue: binance
+    summary: >
+      bnb_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/bnb_1h_power_ema_stack_long_min
+
+  llm2_ema_xrp_1h:
+    family: llm2
+    title: XRP 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [XRPUSDT]
+    signal_venue: binance
+    summary: >
+      xrp_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/xrp_1h_power_ema_stack_long_min
+
+  llm2_ema_ada_1h:
+    family: llm2
+    title: Cardano 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [ADAUSDT]
+    signal_venue: binance
+    summary: >
+      ada_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/ada_1h_power_ema_stack_long_min
+
+  llm2_ema_doge_1h:
+    family: llm2
+    title: Dogecoin 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [DOGEUSDT]
+    signal_venue: binance
+    summary: >
+      doge_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/doge_1h_power_ema_stack_long_min
+
+  llm2_ema_avax_1h:
+    family: llm2
+    title: Avalanche 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [AVAXUSDT]
+    signal_venue: binance
+    summary: >
+      avax_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/avax_1h_power_ema_stack_long_min
+
+  llm2_ema_link_1h:
+    family: llm2
+    title: Chainlink 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [LINKUSDT]
+    signal_venue: binance
+    summary: >
+      link_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/link_1h_power_ema_stack_long_min
+
+  llm2_ema_dot_1h:
+    family: llm2
+    title: Polkadot 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [DOTUSDT]
+    signal_venue: binance
+    summary: >
+      dot_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/dot_1h_power_ema_stack_long_min
+
+  llm2_ema_trx_1h:
+    family: llm2
+    title: TRON 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [TRXUSDT]
+    signal_venue: binance
+    summary: >
+      trx_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/trx_1h_power_ema_stack_long_min
+
+  llm2_ema_xlm_1h:
+    family: llm2
+    title: Stellar 1-hour Exponential Moving Average stack (min size)
+    timeframe: 1h
+    symbols: [XLMUSDT]
+    signal_venue: binance
+    summary: >
+      xlm_1h_power_ema_stack_long_min, Post-Only, 6-bar entry window, minimum exchange
+      size, account Xxobster11 on live-network-2. Start 2026-10-07T19:20Z. Same rule as
+      the Solana EMA stack; research pipeline R002 found it profitable on 11/11 coins.
+    local_path: D:/projects/LLM2/artifacts/live_packs/xlm_1h_power_ema_stack_long_min
+
+  llm2_hilbert_sol_1h:
+    family: llm2
+    title: Solana 1-hour Hilbert amplitude fade
+    timeframe: 1h
+    symbols: [SOLUSDT]
+    signal_venue: binance
+    summary: >
+      sol_1h_hilbert_amp_fade, two-sided Post-Only, Xxobster3 on live-network-1
+      from 2026-09-04. Nested 2022–2026 settle is a subset PASS, not Frozen
+      Default Gates V2.1 / Shadow-Ready. Do not retune Hilbert length or z=1.5
+      after fills.
+    local_path: D:/projects/LLM2/artifacts/live_packs/sol_1h_hilbert_amp_fade
+
+  llm2_autonomy_376_sol:
+    family: llm2
+    title: Solana 15-minute autonomy 376 (SMA540 H4 filter)
+    timeframe: 15m
+    symbols: [SOLUSDT]
+    summary: >
+      Autonomy generation 376, sma540_below on 4-hour, on top of pivot control.
+      Account Xxobster2 on live-network-2. PnL window from 2026-08-26 (after
+      leftover Extreme Gradient Boosting Ether market closes).
+
+  llm2_autonomy_705_eth:
+    family: llm2
+    title: Ether 15-minute autonomy 705 (EMA1320 H4 filter)
+    timeframe: 15m
+    symbols: [ETHUSDT]
+    summary: >
+      Autonomy generation 705, ema1320_below on 4-hour, pivot control.
+      Same Xxobster2 book as autonomy 376.
+
+  llm2_autonomy_013_sol:
+    family: llm2
+    title: Solana 15-minute autonomy 013 (ATR relative H8)
+    timeframe: 15m
+    symbols: [SOLUSDT]
+    summary: >
+      Autonomy generation 013, atr_rel_cross_up_1 on 8-hour, Xxobster10 on
+      live-network-2.
+
+  llm2_quad_btc_1h:
+    family: llm2
+    title: Bitcoin 1-hour quadratic slope follow (STOPPED)
+    timeframe: 1h
+    symbols: [BTCUSDT]
+    signal_venue: binance
+    summary: >
+      STOPPED 2026-09-09. Was btc_1h_quad_slope_follow on Xxobster11 / live-network-2.
+      Nested 2022–2026 settle FAIL. Unit masked; not an active bot.
+    local_path: D:/projects/LLM2/artifacts/live_packs/btc_1h_quad_slope_follow
+
+  llm2_fvg_sol_1h:
+    family: llm2
+    title: Solana 1-hour Fair Value Gap confluence (STOPPED)
+    timeframe: 1h
+    symbols: [SOLUSDT]
+    signal_venue: binance
+    summary: >
+      STOPPED 2026-09-09 with Xxobster11. Was sol_1h_fvg_confluence on live-network-2.
+      Nested settle FAIL. Unit masked; not an active bot.
+    local_path: D:/projects/LLM2/artifacts/live_packs/sol_1h_fvg_confluence
+
+  tsm_chandelier:
+    family: tsm_chandelier
+    title: Chandelier 1-hour BTC / ETH / SOL
+    timeframe: 1h
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+    summary: >
+      systemd tsm-chandelier@SYMBOL on live-network-1, Xxobster6. Go-live for
+      PnL accounting 2026-08-10.
+
+  tsm_vpa:
+    family: tsm_vpa
+    title: Volume Price Analysis VETUSDT (STOPPED)
+    timeframe: 1d
+    symbols: [VETUSDT]
+    summary: >
+      STOPPED 2026-10-22. Was tsm-vpa@VETUSDT on live-network-1, Xxobster5. Never entered
+      (signal dropped when the entry bar is not in the frame); backtest PF 0.97. Not an active bot.
+
+  crypthor2:
+    family: crypthor
+    title: Market Profile out-of-sample (mp_oos)
+    label: mp_oos
+
+  karmaa_mp:
+    family: karmaa_mp
+
+  divergences:
+    family: divergences
+
+  news:
+    family: news
+
+  xgb_match:
+    family: xgb
+    title: Extreme Gradient Boosting match-parity
+    symbols: [BTCUSDT, ETHUSDT]
+    summary: Match-parity tree on Xxobster13 (not the retired Xxobster2 book).
+
+  llm2:
+    family: llm2
+    title: LLM2 catch-all
+    summary: >
+      Generic registry row. Prefer the specific llm2_* unit names when they
+      are running.

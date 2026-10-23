@@ -1,0 +1,19 @@
+[Unit]
+Description=botsgeneral HMI hub (serve site root)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/botsgeneral
+Environment=PYTHONPATH=/opt/botsgeneral
+Environment=BOTSGENERAL_VPS=94.156.189.76
+EnvironmentFile=-/etc/botsgeneral/hmi.env
+ExecStart=/opt/botsgeneral/venv/bin/python -m botsgeneral hmi-hub --host 127.0.0.1 --port 8787
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

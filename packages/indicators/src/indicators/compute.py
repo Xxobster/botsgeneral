@@ -242,8 +242,22 @@ def _build_bar_features(
         last_leg_dir[ok] = dirs[idx[ok]]
         last_leg_kind[ok] = kinds[idx[ok]]
         last_leg_len[ok] = lens[idx[ok]]
-        last_retrace[ok] = retr[idx[ok]]
-        last_retrace_fib[ok] = flab[idx[ok]]
+
+        # CAUS-STRUCT-001. A leg's retracement is measured against the END of the NEXT
+        # opposite leg, so it is unknown until that next leg confirms. Publishing it at
+        # the leg's own confirmation time (as ``idx`` does for direction/kind/length)
+        # would put future prices into bar T: live only ever sees NaN there, while a
+        # later full-history recompute back-fills the real number. That single column
+        # was enough to flip roughly half of all live decision sides versus backtest.
+        # Publish at the successor leg's known time instead.
+        if len(legs_o) >= 2:
+            retr_known = known_ts[1:]
+            retr_vals = retr[:-1]
+            retr_labs = flab[:-1]
+            idx_r = np.searchsorted(retr_known, ts_ms, side="right") - 1
+            ok_r = idx_r >= 0
+            last_retrace[ok_r] = retr_vals[idx_r[ok_r]]
+            last_retrace_fib[ok_r] = retr_labs[idx_r[ok_r]]
 
         # Fill fib columns by contiguous as-of segments (not per-leg full-array masks).
         n_legs = len(legs_o)

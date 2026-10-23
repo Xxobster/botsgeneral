@@ -15,8 +15,10 @@ from .defaults import (
     research_limit_entry_costs,
     research_margin,
     research_sim,
+    research_sim_hedge,
     research_sim_limit_entry,
     research_sizing,
+    research_sizing_equity_leverage,
     research_starting_equity,
 )
 from .fingerprint import bars_fingerprint, run_fingerprint, short_id, trades_fingerprint
@@ -50,8 +52,10 @@ __all__ = [
     "research_limit_entry_costs",
     "research_margin",
     "research_sim",
+    "research_sim_hedge",
     "research_sim_limit_entry",
     "research_sizing",
+    "research_sizing_equity_leverage",
     "research_starting_equity",
     "run_backtest",
     "run_fingerprint",

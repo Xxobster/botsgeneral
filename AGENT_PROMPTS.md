@@ -161,6 +161,24 @@ Goals:
 
 ---
 
+## llm2 (VPS 185.203.119.52)
+
+```
+Context: LLM2 structure/signals use Binance USD-M futures Last (research parity); orders/mark/TP-SL on Bybit. Shared collector serves BTC/ETH/SOL at 1h + 4h + 1w. Reader path: SHARED_CANDLES_DB=/var/lib/botsgeneral/shared_candles.db via botsgeneral.reader or llm2.live.refresh_structure (shared-first, fapi REST fallback).
+
+Live need:
+  exchange = 'binance'
+  symbols = BTCUSDT, ETHUSDT, SOLUSDT
+  timeframes = 1h, 4h, 1w
+  Env: LLM2_STRUCTURE_SOURCE=binance, SHARED_CANDLES_DB=/var/lib/botsgeneral/shared_candles.db
+  Path: /home/llm2
+
+Confirm: systemctl is-active botsgeneral-collector@185.203.119.52
+         bots --vps 185.203.119.52 discover
+```
+
+---
+
 ## tradesim (any strategy repo — auto-update + Finplot)
 
 Full prompt: `docs/project_memory/TRADESIM_PROGRAM_PROMPT.md`

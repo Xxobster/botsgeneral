@@ -1,5 +1,119 @@
 # Changelog
 
+## 2026-10-05 — Winners table: avg PnL per trade + current equity
+
+- **Avg PnL** on Best winners is mean realized profit and loss per closed
+  round-trip for that pair (not per day). UI label is now **Avg PnL/trade**.
+- Added **Equity** = current account total equity (USDT). Shared-account bots
+  show the same wallet equity.
+
+## 2026-10-05 — HMI pair winners + hide SM/LN3
+
+- Public fleet page on ln1 no longer shows Virtual Private Servers SM and LN3.
+- Added **Best winners by pair** above Open positions: VPS, bot, pair, account,
+  trades, days running, trades/day, PnL, win rate, profit factor, recovery
+  factor, max drawdown, payoff, average PnL. Sorted by profit factor.
+- Live backup on ln1: `/opt/botsgeneral/backups/hmi-20261005-pre-winners`.
+
+## 2026-09-24 — HMI at site root on ln1 (bots94.duckdns.org)
+
+- Hub serves `/` (legacy `/bots/` → 301 to root). Nginx proxies site root with HTTP basic auth.
+- Public: **https://bots94.duckdns.org/** and **http://94.156.189.76/** (TLS via snap Certbot).
+- Removed public HMI leftovers on `sm` `212.73.150.149` (hub unit off; nginx `/bots` include gone).
+- Verified fleet: 9 accounts / 4 hosts / 0 errors.
+
+## 2026-09-24 — HMI hub restored on ln1 (cirlapp.duckdns.org)
+
+- Recreated fleet `/bots` after accidental deletion on former hub host.
+- Hub + nginx + Let's Encrypt now on **ln1** `94.156.189.76`.
+- DuckDNS `cirlapp` A record → `94.156.189.76` (AAAA cleared).
+- Agents reinstalled/synced on ln2 / ln3 / sm; hub SSH key `hmi-hub-ln1`.
+- URL: https://cirlapp.duckdns.org/bots/ (HTTP basic `admin`).
+
+## 2026-09-06 — HMI card metric colors CSS fix
+
+- Account-card green/red was applied in JavaScript but overridden by
+  `.metrics b { color: #fff }`. Added `.metrics b.up` / `.metrics b.dn`
+  (and totals). Cache-bust `?v=20260906e`.
+
+## 2026-09-06 — cirlapp.duckdns.org HTTPS for /bots
+
+- DuckDNS domain is **`cirlapp`** (not `cirl`); A record already `212.73.150.149`.
+- Nginx vhost + Let's Encrypt cert for `https://cirlapp.duckdns.org/bots/`
+  (HTTP basic auth). `cirl.duckdns.org` remains unrelated / wrong host.
+
+## 2026-09-06 — HMI conf/risk + colors; cirl.duckdns diagnosis
+
+- Trades/positions enriched from LLM2 decide SQLite (`confidence_pct`,
+  `risk_pct` / `actual_risk_pct`) when the bot recorded them; shown on Active
+  trades, Last 10, and account detail. Blank (`—`) when not applicable.
+- Main-page account cards: green/red for realized and unrealized Profit and Loss
+  (PnL); profit factor (PF) and recovery factor (RF) green if > 1 else red.
+- Root cause for `https://cirl.duckdns.org/bots`: DuckDNS A record points to
+  `91.204.226.154`, not `212.73.150.149`. Added nginx HTTP vhost stub
+  `deploy/nginx-cirl-duckdns.conf` on sm pending DNS fix + TLS.
+
+## 2026-09-06 — HMI main page trades + PnL axes
+
+- Above Accounts: **Active trades** (account, bot, pair, side, size, entry, mark,
+  unrealized Profit and Loss (PnL), leverage, nearer exit) and **Last 10 trades**.
+- Account cards show **Closed trades** count per account.
+- Detail Profit and Loss (PnL) curve: date labels on X, money labels on Y.
+- Deployed static assets on `sm` (`?v=20260906c`); hub restarted and active.
+
+## 2026-09-05 — HMI overlay bug + contrast
+
+- Empty account-detail panel was always visible: CSS `display: grid` beat the
+  HTML `hidden` attribute, so a dim overlay and a blank bar with × sat on top
+  of the page. Overlay now stays `display: none` until an account is opened.
+- Dark theme kept; text, labels, and card backgrounds are brighter.
+
+## 2026-09-05 — HMI `/bots` login is `admin`
+
+- HTTP basic auth on `http://212.73.150.149/bots/`: user `admin`.
+- Previous random `xxobster` password is invalid.
+
+## 2026-09-04 — Fleet Human-Machine Interface (HMI) at `/bots`
+
+- Webpage: `http://212.73.150.149/bots/` (HTTP basic auth, user `admin`).
+- Each trading Virtual Private Server (VPS) runs `botsgeneral-hmi-agent` on
+  `127.0.0.1:8788`. Keys stay on that host. Incremental SQLite closed-PnL cache
+  (`/var/lib/botsgeneral/hmi_cache.sqlite`) so page refresh does not re-download
+  the full Bybit history.
+- Hub on `sm` fans out over SSH in parallel, merges by Xxobster account, serves
+  the Single Page Application. Host cards: Central Processing Unit (CPU), memory,
+  disk, load, uptime. Account cards: Profit and Loss (PnL), win rate, profit
+  factor, recovery factor, start date, days active, trades, pair filter, equity
+  curves, strategy summaries.
+- `bots` CLI: `hmi-snapshot`; report prints days active + CPU. Runtime `--account`
+  wins over a single registry account (same pack on two VPS).
+- Registry: live LLM2 units (Exponential Moving Average, Hilbert, autonomy, Fair
+  Value Gap, quadratic slope, p50 pivots) + `sm` hub host with empty bot list.
+
+## 2026-08-27 — Fix `last_open` / opened time (Bybit createdTime trap)
+
+- Bybit `createdTime` on `/v5/position/list` is the **first-ever** open on that
+  symbol, not the current cycle — so `bots` showed e.g. `last_open SOL @ 2026-08-03`
+  while the bot and closed trades started 2026-08-12.
+- Prefer Bybit `openTime` (current cycle). `last_open` takes the max across live
+  opens and closed-pnl rows (not live-only). OPEN lines print `opened=`.
+- Regression: stale createdTime + newer openTime / closed rows.
+
+## 2026-08-26 — Xxobster2 PnL since after leftover XGB ETH Market
+
+- `since_by_account.Xxobster2` and autonomy 376/705 symbol dates: `2026-08-26`
+  (after leftover Extreme Gradient Boosting Ether Market closes 25 Aug 12:26 UTC).
+- Date-only UTC midnight; autonomy first start was 25 Aug 14:24 UTC with 0 fills.
+- Live-network-2 `/etc/botsgeneral/report.yaml`. `bots report` now n=0 on Xxobster2.
+
+## 2026-08-25 — ln1 drop retired xgb / Xxobster2 from `bots`
+
+- User removed Extreme Gradient Boosting live screens on `94.156.189.76` and
+  asked to drop that bot from the `bots` command. Host list no longer includes
+  `xgb`. Leftover Bybit positions stay on exchange take-profit / stop-loss.
+- `bots` / `bots sitrep` no longer show Xxobster2. `bots pnl` still lists the
+  wallet while leftover positions exist (keys remain on disk).
+
 ## 2026-08-19 — Binance kline WebSocket + running-only demand
 
 - Collector subscribes Binance USD-M klines on WebSocket (closed bars only);
@@ -29,6 +143,13 @@
 - Default `trade_style` remains lines/spans; zones still add the hold box.
 - Same-bar exits bump the span one bar so the segment is still visible.
 - Tests: span endpoints + color; same-bar span unit test.
+
+## 2026-09-06 — Retire bots from VPS + HMI
+
+- Registry VPS lists: removed `xgb_match` (ln1 / 94), `divergences` /
+  `crypthor2` (mp_oos) / `karmaa_mp` / `news` (ln2 / 212), and catch-all
+  `llm2` (ln3 / 185 → empty). Disabled leftover systemd units on those hosts.
+- Goal: they no longer appear on http://212.73.150.149/bots/ after HMI refresh.
 
 ## 2026-08-21 — Fleet report: risk metrics + open detail
 

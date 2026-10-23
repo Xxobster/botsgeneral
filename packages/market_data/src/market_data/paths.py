@@ -18,3 +18,7 @@ def candles_root() -> Path:
 
 def market_ohlcv_db() -> Path:
     return candles_root() / "market_ohlcv.sqlite"
+
+
+def market_oi_db() -> Path:
+    return candles_root() / "market_oi.sqlite"

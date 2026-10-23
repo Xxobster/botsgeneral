@@ -28,6 +28,21 @@ def test_db_upsert_and_freshness(tmp_path: Path):
     db.close()
 
 
+def test_delete_timeframe_keeps_other_series(tmp_path: Path):
+    db = CandleDB(tmp_path / "t.db")
+    db.upsert_candles(
+        [
+            CandleRow("binance", "ETHUSDT", "1m", 1_000, 1, 2, 0.5, 1.5, 10),
+            CandleRow("binance", "ETHUSDT", "15m", 2_000, 1, 2, 0.5, 1.5, 10),
+        ]
+    )
+    out = db.delete_timeframe("1m", vacuum=False)
+    assert out["deleted_bars"] == 1
+    assert db.candle_count(CandlePair("binance", "ETHUSDT", "1m")) == 0
+    assert db.candle_count(CandlePair("binance", "ETHUSDT", "15m")) == 1
+    db.close()
+
+
 def test_wip_parser():
     root = Path(r"C:/projects/W.I.P")
     if not root.exists():

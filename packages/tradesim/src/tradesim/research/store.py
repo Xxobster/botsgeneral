@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
     hold_bars INTEGER,
     entry_bar_exit INTEGER,
     tp_levels_json TEXT,
+    meta_json TEXT,
     PRIMARY KEY (run_id, trade_id),
     FOREIGN KEY (run_id) REFERENCES backtest_runs(run_id)
 );
@@ -153,6 +154,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("target_price", "REAL"),
         ("return_units", "REAL"),
         ("tp_levels_json", "TEXT"),
+        ("meta_json", "TEXT"),
     ):
         if name not in tcols:
             _add_column(conn, "backtest_trades", name, decl)
@@ -302,8 +304,8 @@ class BacktestStore:
                     run_id, trade_id, symbol, side, entry_ts_ms, exit_ts_ms,
                     entry_price, exit_price, qty, stop_price, target_price, exit_reason,
                     fees, funding, gross_pnl, realized_pnl, return_units,
-                    hold_bars, entry_bar_exit, tp_levels_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    hold_bars, entry_bar_exit, tp_levels_json, meta_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 [
                     (
@@ -327,6 +329,9 @@ class BacktestStore:
                         t.hold_bars,
                         1 if t.entry_bar_exit else 0,
                         json.dumps(list(getattr(t, "tp_levels", ()) or ()), default=str),
+                        json.dumps(dict(getattr(t, "meta", None) or {}), default=str)
+                        if getattr(t, "meta", None)
+                        else None,
                     )
                     for t in result.trades
                 ],
@@ -699,6 +704,15 @@ def _trade_from_row(r: Any) -> Trade:
             )
         except Exception:
             tp_levels = ()
+    meta: dict = {}
+    raw_meta = getattr(r, "meta_json", None)
+    if raw_meta:
+        try:
+            parsed_m = json.loads(raw_meta)
+            if isinstance(parsed_m, dict):
+                meta = parsed_m
+        except Exception:
+            meta = {}
     return Trade(
         trade_id=int(r.trade_id),
         symbol=str(r.symbol or ""),
@@ -728,4 +742,5 @@ def _trade_from_row(r: Any) -> Trade:
         resolved_by_touch=False,
         entry_bar_exit=bool(int(getattr(r, "entry_bar_exit", 0) or 0)),
         tp_levels=tp_levels,
+        meta=meta,
     )

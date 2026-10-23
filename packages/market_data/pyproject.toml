@@ -22,6 +22,7 @@ research = [
 
 [project.scripts]
 market-data-download = "market_data.download_all:main"
+market-data-oi = "market_data.download_oi:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

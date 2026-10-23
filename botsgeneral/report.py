@@ -17,14 +17,19 @@ from botsgeneral.discover.process import (
 )
 from botsgeneral.keys import resolve_accounts
 from botsgeneral.metrics import (
+    days_active,
     enrich_open_position,
+    equity_curve_from_closed,
+    equity_curves_by_symbol,
     fmt_num,
     fmt_pct,
     fmt_signed_pct,
     fmt_ts_utc,
+    group_closed_legs_to_roundtrips,
     last_open_event,
     parse_since_ms,
     trade_metrics,
+    trade_ts_ms,
 )
 from botsgeneral.pnl import account_summary, bybit_private_get
 from botsgeneral.sitrep import build_sitrep
@@ -96,9 +101,10 @@ def fetch_closed_pnl(
     api_secret: str,
     start_ms: int,
     symbol: str | None = None,
+    end_ms: int | None = None,
 ) -> list[dict[str, Any]]:
     """Paginate Bybit closed-pnl since start_ms (chunked into <=7d windows)."""
-    end_ms = int(time.time() * 1000)
+    end_ms = int(end_ms if end_ms is not None else time.time() * 1000)
     start_ms = int(start_ms)
     if end_ms <= start_ms:
         return []
@@ -129,6 +135,32 @@ def fetch_closed_pnl(
     return out
 
 
+def fetch_closed_pnl_cached(
+    account: str,
+    api_key: str,
+    api_secret: str,
+    start_ms: int,
+    symbol: str | None = None,
+) -> list[dict[str, Any]]:
+    """Same as fetch_closed_pnl but incremental SQLite cache when available."""
+    from botsgeneral.hmi.cache import closed_pnl_cache
+
+    cache = closed_pnl_cache()
+    if cache is None:
+        return fetch_closed_pnl(api_key, api_secret, start_ms, symbol=symbol)
+
+    def _fetch(window_start: int, window_end: int) -> list[dict[str, Any]]:
+        return fetch_closed_pnl(
+            api_key, api_secret, window_start, symbol=None, end_ms=window_end
+        )
+
+    rows = cache.get_or_fetch(str(account), int(start_ms), _fetch, symbol=None)
+    if symbol:
+        su = str(symbol).upper()
+        rows = [t for t in rows if (t.get("symbol") or "").upper() == su]
+    return rows
+
+
 def _account_bot_map(registry: dict) -> dict[str, list[str]]:
     from botsgeneral.keys import canonicalize_account_name
 
@@ -140,6 +172,19 @@ def _account_bot_map(registry: dict) -> dict[str, list[str]]:
             canon = canonicalize_account_name(str(a))
             m.setdefault(canon, []).append(bot)
     return m
+
+
+def drop_generic_parent_bots(bot_names: list[str]) -> list[str]:
+    """Hide catch-all `llm2` when a specific llm2_* unit is already listed.
+
+    Autonomy / pivot child keys carry the real coins. The generic `llm2` entry
+    lists BTC+ETH+SOL and pollutes the phone report (e.g. Bitcoin on a Solana-only
+    filter account).
+    """
+    names = [str(b) for b in bot_names if b]
+    if any(n.startswith("llm2_") for n in names):
+        return [n for n in names if n != "llm2"]
+    return names
 
 
 def _live_account_bot_map(registry: dict, sitrep: dict) -> dict[str, list[str]]:
@@ -170,7 +215,7 @@ def _live_account_bot_map(registry: dict, sitrep: dict) -> dict[str, list[str]]:
         for a in live or []:
             canon = canonicalize_account_name(str(a))
             m.setdefault(canon, []).append(name)
-    return m
+    return {k: drop_generic_parent_bots(v) for k, v in m.items()}
 
 
 def _registry_symbols(registry: dict, bot_names: list[str]) -> list[str]:
@@ -193,6 +238,42 @@ def _symbols_from_text(blob: str) -> set[str]:
     for m in re.finditer(r"([A-Za-z0-9]+USDT)", blob, flags=re.IGNORECASE):
         out.add(m.group(1).upper())
     return out
+
+
+CATCHALL_BOTS = {"llm2"}
+
+
+def symbols_from_llm2_unit_names(systemd: list[str]) -> set[str]:
+    """Map running llm2-pivot-* unit names to coins (paths often lack SYMBOLUSDT)."""
+    import re
+
+    out: set[str] = set()
+    for u in systemd:
+        low = str(u).lower()
+        if not low.startswith("llm2-"):
+            continue
+        if "autonomy" in low:
+            continue
+        if re.search(r"\bsol\b|[-_]sol[-_]|^llm2-pivot-sol", low):
+            out.add("SOLUSDT")
+        if re.search(r"\beth\b|[-_]eth[-_]|^llm2-pivot-eth", low):
+            out.add("ETHUSDT")
+        if re.search(r"\bbtc\b|[-_]btc[-_]|^llm2-pivot-btc", low):
+            out.add("BTCUSDT")
+    return out
+
+
+def merge_bot_running_symbols(
+    bot_found: set[str],
+    bot_hint: set[str],
+    bot_name: str,
+) -> set[str]:
+    """Process/systemd hits win. Catch-all registry lists must not invent coins."""
+    if bot_found:
+        return set(bot_found)
+    if str(bot_name) in CATCHALL_BOTS:
+        return set()
+    return set(bot_hint)
 
 
 def _running_symbols_for_bots(registry: dict, bot_names: list[str]) -> set[str]:
@@ -249,23 +330,22 @@ def _running_symbols_for_bots(registry: dict, bot_names: list[str]) -> set[str]:
                 bot_blob_parts.append(u)
 
         bot_found = _symbols_from_text("\n".join(bot_blob_parts))
+        if bot == "llm2":
+            bot_found |= symbols_from_llm2_unit_names(bot_blob_parts or systemd)
         bot_hint = set(_registry_symbols(registry, [bot]))
         if bot_hint:
             bot_found &= bot_hint
-        found |= bot_found or bot_hint
+        found |= merge_bot_running_symbols(bot_found, bot_hint, bot)
 
     return found
 
 
 def _trade_ts_ms(t: dict[str, Any]) -> int:
-    try:
-        return int(t.get("updatedTime") or t.get("createdTime") or 0)
-    except (TypeError, ValueError):
-        return 0
+    return trade_ts_ms(t)
 
 
 def _since_map_for_bots(settings: dict[str, Any], bot_names: list[str]) -> dict[str, str]:
-    """Merge since_by_bot overrides for the given bots → {SYMBOL: YYYY-MM-DD}."""
+    """Merge since_by_bot overrides for the given bots → {SYMBOL: since stamp}."""
     out: dict[str, str] = {}
     by_bot = settings.get("since_by_bot") or {}
     if not isinstance(by_bot, dict):
@@ -276,12 +356,12 @@ def _since_map_for_bots(settings: dict[str, Any], bot_names: list[str]) -> dict[
             continue
         for sym, day in block.items():
             if day:
-                out[str(sym).upper().replace("/", "")] = str(day).strip()[:10]
+                out[str(sym).upper().replace("/", "")] = str(day).strip()
     return out
 
 
 def _account_since_override(settings: dict[str, Any], account_name: str) -> str | None:
-    """Optional per-account since_date from since_by_account (YYYY-MM-DD)."""
+    """Optional per-account since stamp from since_by_account (date or datetime)."""
     from botsgeneral.keys import canonicalize_account_name
 
     by_acct = settings.get("since_by_account") or {}
@@ -299,8 +379,27 @@ def _account_since_override(settings: dict[str, Any], account_name: str) -> str 
     if isinstance(raw, dict):
         # allow {"*": "YYYY-MM-DD"} or ignore symbol map here (use bot map for symbols)
         star = raw.get("*") or raw.get("all")
-        return str(star).strip()[:10] if star else None
-    return str(raw).strip()[:10] if raw else None
+        return str(star).strip() if star else None
+    return str(raw).strip() if raw else None
+
+
+def _later_iso_date(a: str, b: str) -> str:
+    """Return the later since stamp (date-only is UTC midnight)."""
+    aa = str(a).strip()
+    bb = str(b).strip()
+    return aa if parse_since_ms(aa) >= parse_since_ms(bb) else bb
+
+
+def _effective_since_for_symbol(
+    acct_since: str,
+    sym: str,
+    since_by_symbol: dict[str, str],
+) -> str:
+    """Per-symbol start cannot be earlier than the account go-live stamp."""
+    extra = since_by_symbol.get(str(sym).upper())
+    if extra:
+        return _later_iso_date(acct_since, extra)
+    return str(acct_since).strip()
 
 
 def _filter_closed_by_since(
@@ -308,13 +407,18 @@ def _filter_closed_by_since(
     default_since: str,
     since_by_symbol: dict[str, str],
 ) -> list[dict[str, Any]]:
-    """Drop trades before the applicable since date (default or per-symbol)."""
+    """Drop trades before the applicable since stamp (default or per-symbol).
+
+    ``default_since`` (usually ``since_by_account``) is a floor: a per-bot
+    symbol stamp may only make the window *later*, never earlier.
+    """
     default_ms = parse_since_ms(str(default_since))
-    sym_ms = {s: parse_since_ms(d) for s, d in since_by_symbol.items()}
     out = []
     for t in closed:
         sym = (t.get("symbol") or "").upper()
-        start = sym_ms.get(sym, default_ms)
+        start = parse_since_ms(_effective_since_for_symbol(str(default_since), sym, since_by_symbol))
+        if start < default_ms:
+            start = default_ms
         if _trade_ts_ms(t) >= start:
             out.append(t)
     return out
@@ -337,20 +441,154 @@ def _active_candle_keys(sitrep: dict) -> set[tuple[str, str, str]]:
     return keys
 
 
+def _bot_label(registry: dict, bot_name: str) -> str:
+    cfg = (registry.get("bots") or {}).get(bot_name) or {}
+    return str(cfg.get("label") or bot_name)
+
+
+def _enrich_account_closed(
+    summary: dict[str, Any],
+    *,
+    name: str,
+    bots: list[str],
+    registry: dict,
+    settings: dict[str, Any],
+    since: str,
+    creds: dict[str, str],
+    include_trades: bool,
+) -> dict[str, Any]:
+    summary["bot_ids"] = list(bots)
+    summary["bots"] = [_bot_label(registry, b) for b in bots]
+    live_syms = _running_symbols_for_bots(registry, bots)
+    since_by_sym = _since_map_for_bots(settings, bots)
+    acct_since = _account_since_override(settings, name) or str(since)
+    fetch_start_ms = parse_since_ms(str(acct_since))
+    try:
+        closed = fetch_closed_pnl_cached(
+            name, creds["api_key"], creds["api_secret"], fetch_start_ms
+        )
+    except Exception as e:
+        summary["closed_error"] = str(e)
+        closed = []
+    if live_syms:
+        closed = [t for t in closed if (t.get("symbol") or "").upper() in live_syms]
+    closed = _filter_closed_by_since(closed, acct_since, since_by_sym)
+    by_sym: dict[str, list] = {}
+    for t in closed:
+        sym = (t.get("symbol") or "?").upper()
+        by_sym.setdefault(sym, []).append(t)
+    for p in summary.get("positions") or []:
+        sym = (p.get("symbol") or "").upper()
+        if sym and (not live_syms or sym in live_syms):
+            by_sym.setdefault(sym, [])
+    for sym in sorted(live_syms):
+        by_sym.setdefault(sym, [])
+    if live_syms:
+        summary["positions"] = [
+            p for p in (summary.get("positions") or []) if (p.get("symbol") or "").upper() in live_syms
+        ]
+    summary["positions"] = [enrich_open_position(p) for p in (summary.get("positions") or [])]
+    per_coin = []
+    for sym in sorted(by_sym.keys()):
+        m = trade_metrics(by_sym[sym])
+        m["symbol"] = sym
+        m["n_closed"] = m["n_trades"]
+        m["since"] = _effective_since_for_symbol(acct_since, sym, since_by_sym)
+        m["days_active"] = days_active(parse_since_ms(str(m["since"])))
+        opens = [p for p in (summary.get("positions") or []) if (p.get("symbol") or "").upper() == sym]
+        m["open_positions"] = opens
+        if include_trades:
+            m["equity_curve"] = equity_curve_from_closed(group_closed_legs_to_roundtrips(by_sym[sym]))
+        per_coin.append(m)
+    summary["since"] = acct_since
+    summary["since_ms"] = fetch_start_ms
+    summary["days_active"] = days_active(fetch_start_ms)
+    summary["since_by_symbol"] = since_by_sym
+    summary["closed_all"] = trade_metrics(closed)
+    summary["per_coin"] = per_coin
+    summary["closed_raw_count"] = len(closed)
+    summary["n_open_positions"] = len(
+        [p for p in (summary.get("positions") or []) if float(p.get("size") or p.get("qty") or 0) > 0]
+    )
+    summary["live_symbols"] = sorted(live_syms)
+    summary["last_open"] = last_open_event(summary.get("positions") or [], closed)
+    if include_trades:
+        roundtrips = group_closed_legs_to_roundtrips(closed)
+        summary["equity_curve"] = equity_curve_from_closed(roundtrips)
+        summary["equity_curve_by_symbol"] = equity_curves_by_symbol(roundtrips)
+        summary["trades"] = normalize_closed_trades(roundtrips)
+        summary["closed_leg_count"] = len(closed)
+        summary["closed_roundtrip_count"] = len(roundtrips)
+    try:
+        from botsgeneral.hmi.decide_enrich import enrich_trades_and_positions
+
+        enrich_trades_and_positions(
+            trades=summary.get("trades") if include_trades else None,
+            positions=summary.get("positions"),
+            registry=registry,
+            bot_ids=list(bots),
+        )
+    except Exception:
+        pass
+    return summary
+
+
+def normalize_closed_trades(closed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Stable trade rows for the Human-Machine Interface (HMI) and JSON CLI."""
+    out: list[dict[str, Any]] = []
+    for t in closed:
+        ts = trade_ts_ms(t)
+        created = 0
+        try:
+            created = int(t.get("createdTime") or t.get("created_ms") or 0)
+        except (TypeError, ValueError):
+            created = 0
+        row = {
+            "order_id": t.get("orderId") or t.get("order_id"),
+            "symbol": str(t.get("symbol") or "").upper(),
+            "side": t.get("side"),
+            "qty": t.get("qty") if t.get("qty") is not None else t.get("closedSize"),
+            "closed_size": t.get("closedSize") or t.get("closed_size") or t.get("qty"),
+            "entry": t.get("avgEntryPrice") if t.get("avgEntryPrice") is not None else t.get("entry"),
+            "exit": t.get("avgExitPrice") if t.get("avgExitPrice") is not None else t.get("exit"),
+            "pnl": t.get("closedPnl") if t.get("closedPnl") is not None else t.get("pnl"),
+            "leverage": t.get("leverage"),
+            "order_type": t.get("orderType"),
+            "exec_type": t.get("execType"),
+            "open_fee": t.get("openFee") or t.get("cumEntryFee"),
+            "close_fee": t.get("closeFee") or t.get("cumExitFee"),
+            "fill_count": t.get("fillCount"),
+            "created_ms": created or None,
+            "updated_ms": ts or None,
+            "leg_count": int(t.get("leg_count") or 1),
+        }
+        if t.get("leg_order_ids"):
+            row["leg_order_ids"] = list(t.get("leg_order_ids") or [])
+        out.append(row)
+    out.sort(key=lambda r: int(r.get("updated_ms") or 0), reverse=True)
+    return out
+
+
 def build_fleet_report(
     keys_path: str | None = None,
     registry_path: str | None = None,
     report_cfg_path: str | None = None,
     vps_id: str | None = None,
     since_date: str | None = None,
+    *,
+    include_trades: bool = False,
+    sitrep_running_only: bool = True,
 ) -> dict[str, Any]:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     settings = load_report_settings(report_cfg_path)
     since = since_date or settings.get("since_date") or "2026-07-09"
     registry = load_registry(registry_path)
     vps = vps_id or detect_vps_id(registry)
     accounts = resolve_accounts(keys_path)
     acct_bots_registry = _account_bot_map(registry)
-    sitrep = build_sitrep(registry_path=registry_path, vps_id=vps)
+    sitrep_full = build_sitrep(registry_path=registry_path, vps_id=vps)
+    sitrep = dict(sitrep_full)
 
     running_bots = {b["bot"] for b in (sitrep.get("bots") or []) if b.get("running")}
     # Only accounts that a *running* bot process/unit actually uses (not every
@@ -370,9 +608,8 @@ def build_fleet_report(
     use_accounts = {k: v for k, v in accounts.items() if k in preferred}
     missing = sorted(preferred - set(accounts.keys()))
 
-    # Filter sitrep bots/pairs/freshness to live reality
-    sitrep = dict(sitrep)
-    sitrep["bots"] = [b for b in (sitrep.get("bots") or []) if b.get("running")]
+    if sitrep_running_only:
+        sitrep["bots"] = [b for b in (sitrep.get("bots") or []) if b.get("running")]
     active_keys = _active_candle_keys(sitrep)
     sitrep["candle_freshness"] = [
         f
@@ -383,62 +620,38 @@ def build_fleet_report(
         p for p in (sitrep.get("discovered_pairs") or []) if p.get("bot") in running_bots
     ]
 
-    rows = []
-    for name in sorted(use_accounts.keys()):
+    def _one(name: str) -> dict[str, Any]:
         creds = use_accounts[name]
         summary = account_summary(name, creds)
         bots = list(acct_bots.get(name) or [])
-        # Keep stable order from registry map when possible
         reg_order = acct_bots_registry.get(name) or []
         bots = [b for b in reg_order if b in bots] + [b for b in bots if b not in reg_order]
-        summary["bots"] = bots
-        live_syms = _running_symbols_for_bots(registry, bots)
-        since_by_sym = _since_map_for_bots(settings, bots)
-        acct_since = _account_since_override(settings, name) or str(since)
-        fetch_start_ms = _earliest_since_ms(acct_since, since_by_sym)
-        try:
-            closed = fetch_closed_pnl(creds["api_key"], creds["api_secret"], fetch_start_ms)
-        except Exception as e:
-            summary["closed_error"] = str(e)
-            closed = []
-        # Keep closed trades only for live symbols when we know them
-        if live_syms:
-            closed = [t for t in closed if (t.get("symbol") or "").upper() in live_syms]
-        closed = _filter_closed_by_since(closed, acct_since, since_by_sym)
-        by_sym: dict[str, list] = {}
-        for t in closed:
-            sym = (t.get("symbol") or "?").upper()
-            by_sym.setdefault(sym, []).append(t)
-        for p in summary.get("positions") or []:
-            sym = (p.get("symbol") or "").upper()
-            if sym and (not live_syms or sym in live_syms):
-                by_sym.setdefault(sym, [])
-        # Show configured live symbols even with 0 closed (so BTC/ETH visible)
-        for sym in sorted(live_syms):
-            by_sym.setdefault(sym, [])
-        # Drop open positions that aren't live symbols
-        if live_syms:
-            summary["positions"] = [
-                p for p in (summary.get("positions") or []) if (p.get("symbol") or "").upper() in live_syms
-            ]
-        summary["positions"] = [enrich_open_position(p) for p in (summary.get("positions") or [])]
-        per_coin = []
-        for sym in sorted(by_sym.keys()):
-            m = trade_metrics(by_sym[sym])
-            m["symbol"] = sym
-            m["n_closed"] = m["n_trades"]
-            m["since"] = since_by_sym.get(sym, acct_since)
-            opens = [p for p in (summary.get("positions") or []) if (p.get("symbol") or "").upper() == sym]
-            m["open_positions"] = opens
-            per_coin.append(m)
-        summary["since"] = acct_since
-        summary["since_by_symbol"] = since_by_sym
-        summary["closed_all"] = trade_metrics(closed)
-        summary["per_coin"] = per_coin
-        summary["closed_raw_count"] = len(closed)
-        summary["live_symbols"] = sorted(live_syms)
-        summary["last_open"] = last_open_event(summary.get("positions") or [], closed)
-        rows.append(summary)
+        return _enrich_account_closed(
+            summary,
+            name=name,
+            bots=bots,
+            registry=registry,
+            settings=settings,
+            since=str(since),
+            creds=creds,
+            include_trades=include_trades,
+        )
+
+    rows: list[dict[str, Any]] = []
+    names = sorted(use_accounts.keys())
+    if len(names) <= 1:
+        rows = [_one(n) for n in names]
+    else:
+        with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:
+            futs = {pool.submit(_one, n): n for n in names}
+            by_name: dict[str, dict[str, Any]] = {}
+            for fut in as_completed(futs):
+                n = futs[fut]
+                try:
+                    by_name[n] = fut.result()
+                except Exception as e:
+                    by_name[n] = {"account": n, "error": str(e), "bots": [], "bot_ids": []}
+            rows = [by_name[n] for n in names]
 
     return {
         "vps": vps,
@@ -498,12 +711,13 @@ def build_trades_report(
     acct_since = _account_since_override(settings, account_name) or str(since)
     since = acct_since
     sym_u = symbol.upper() if symbol else None
-    if sym_u and sym_u in since_by_sym:
-        since = since_by_sym[sym_u]
+    if sym_u:
+        since = _effective_since_for_symbol(acct_since, sym_u, since_by_sym)
         start_ms = parse_since_ms(str(since))
     else:
-        start_ms = _earliest_since_ms(str(acct_since), since_by_sym) if not sym_u else parse_since_ms(str(acct_since))
-    closed = fetch_closed_pnl(
+        start_ms = parse_since_ms(str(acct_since))
+    closed = fetch_closed_pnl_cached(
+        account_name,
         creds["api_key"],
         creds["api_secret"],
         start_ms,
@@ -515,16 +729,20 @@ def build_trades_report(
     # sort newest first
     closed_sorted = sorted(closed, key=lambda t: int(t.get("updatedTime") or t.get("createdTime") or 0), reverse=True)
     metrics = trade_metrics(closed_sorted)
+    since_out = _effective_since_for_symbol(acct_since, sym_u, since_by_sym) if sym_u else acct_since
     return {
         "account": account_name,
         "bots": bots,
         "symbol_filter": sym_u,
-        "since": since_by_sym.get(sym_u, since) if sym_u else since,
+        "since": since_out,
+        "days_active": days_active(parse_since_ms(str(since_out))),
         "since_by_symbol": since_by_sym,
         "wallet": summary,
         "metrics": metrics,
         "open_positions": summary.get("positions") or [],
         "trades": closed_sorted,
+        "trades_normalized": normalize_closed_trades(closed_sorted),
+        "equity_curve": equity_curve_from_closed(closed_sorted),
     }
 
 
@@ -537,8 +755,11 @@ def print_fleet_report(report: dict[str, Any]) -> None:
 
     disk = sitrep.get("disk") or {}
     mem = sitrep.get("memory") or {}
+    cpu = sitrep.get("cpu") or {}
+    cpu_s = f"cpu {cpu.get('cpu_pct')}%" if cpu.get("cpu_pct") is not None else "cpu -"
     print(
-        f"Host: disk {disk.get('used_pct')}% used ({disk.get('free_gb')} GB free) | "
+        f"Host: {cpu_s} ({cpu.get('nproc') or sitrep.get('nproc') or '?'} cores) | "
+        f"disk {disk.get('used_pct')}% used ({disk.get('free_gb')} GB free) | "
         f"mem {mem.get('used_pct')}% | load {sitrep.get('load')}"
     )
     print("\nBot health (running):")
@@ -549,7 +770,7 @@ def print_fleet_report(report: dict[str, Any]) -> None:
         acc = b.get("account")
         if isinstance(acc, list):
             acc = ",".join(str(a) for a in acc)
-        print(f"  [OK ] {b['bot']:12} account={acc} path_ok={b.get('path_exists')}")
+        print(f"  [OK ] {(b.get('label') or b['bot']):12} account={acc} path_ok={b.get('path_exists')}")
     print("\nCandle pairs (active):")
     fresh = sitrep.get("candle_freshness") or []
     if not fresh:
@@ -583,7 +804,8 @@ def print_fleet_report(report: dict[str, Any]) -> None:
             f"\n{a['account']:12} bots={bots}\n"
             f"  equity={fmt_num(a.get('total_equity'), 4)}  "
             f"wallet={fmt_num(a.get('total_wallet_balance'), 4)}  "
-            f"open_upl={fmt_num(upl, 4)}"
+            f"open_upl={fmt_num(upl, 4)}  "
+            f"since={a.get('since')}  days={a.get('days_active')}"
         )
         print(
             f"  since closed: n={m.get('n_trades')}  "
@@ -609,18 +831,18 @@ def print_fleet_report(report: dict[str, Any]) -> None:
                 f"MaxDD%={fmt_pct(c.get('max_dd_pct')):>7}{since_s}"
             )
         for p in a.get("positions") or []:
-            opened = fmt_ts_utc(p.get("opened_at_ms"))
             closer = p.get("closer_exit")
             closer_s = (
                 f"to_{closer}={fmt_signed_pct(p.get('closer_pct'))}"
                 if closer
                 else "to_TP/SL=-"
             )
+            opened_s = fmt_ts_utc(p.get("opened_at_ms"))
             print(
                 f"    OPEN {p.get('symbol'):10} {p.get('side'):5} "
                 f"size={p.get('size')} avg={p.get('avgPrice')} "
                 f"upl={p.get('unrealisedPnl')} lev={p.get('leverage')}  "
-                f"opened={opened}  {closer_s}"
+                f"opened={opened_s}  {closer_s}"
             )
         lo = a.get("last_open")
         if lo:
@@ -638,7 +860,7 @@ def print_fleet_report(report: dict[str, Any]) -> None:
         f"combined={fmt_num(total_real + total_upl, 4)}"
     )
     print("Drilldown:  bots trades <account|bot> [SYMBOL]")
-    print("Change since date: edit /etc/botsgeneral/report.yaml")
+    print("Change since date/time: edit /etc/botsgeneral/report.yaml")
     print("Help:             bots --help")
 
 
@@ -665,14 +887,13 @@ def print_trades_report(report: dict[str, Any]) -> None:
         f"WR={fmt_pct(m.get('winrate'))}  PF={fmt_num(m.get('profit_factor'), 3)}  "
         f"RF={fmt_num(m.get('recovery_factor'), 2)}  MaxDD%={fmt_pct(m.get('max_dd_pct'))}  "
         f"MaxDD={fmt_num(m.get('max_drawdown'), 4)}  Payoff={fmt_num(m.get('payoff'), 2)}  "
-        f"Avg={fmt_num(m.get('avg_pnl'), 4)}"
+        f"Avg={fmt_num(m.get('avg_pnl'), 4)}  days={report.get('days_active')}"
     )
     print("\nOpen positions:")
     poss = [enrich_open_position(p) for p in (report.get("open_positions") or [])]
     if not poss:
         print("  (none)")
     for p in poss:
-        opened = fmt_ts_utc(p.get("opened_at_ms"))
         closer = p.get("closer_exit")
         closer_s = (
             f"to_{closer}={fmt_signed_pct(p.get('closer_pct'))}"
@@ -682,7 +903,7 @@ def print_trades_report(report: dict[str, Any]) -> None:
         print(
             f"  {p.get('symbol'):10} {p.get('side'):5} size={p.get('size')} "
             f"avg={p.get('avgPrice')} upl={p.get('unrealisedPnl')} lev={p.get('leverage')}  "
-            f"opened={opened}  {closer_s}"
+            f"opened={fmt_ts_utc(p.get('opened_at_ms'))}  {closer_s}"
         )
     lo = last_open_event(poss, report.get("trades") or [])
     if lo:

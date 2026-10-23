@@ -10,10 +10,113 @@ from typing import Any
 import yaml
 
 from botsgeneral.discover import parsers
-from botsgeneral.discover.process import list_screens, list_systemd_units, process_cmdline_blob
+from botsgeneral.discover.demand import refine_bot_pairs
+from botsgeneral.discover.process import (
+    list_screens,
+    list_systemd_unit_lines,
+    list_systemd_units,
+    process_cmdline_blob,
+)
+from botsgeneral.keys import canonicalize_account_name
 from botsgeneral.models import CandlePair
 
 log = logging.getLogger(__name__)
+
+_ACCOUNT_FLAG_RE = re.compile(
+    r"(?i)--account(?:\s+|=)(Xxobster\d*|xxobster\d*)"
+)
+_ACCOUNT_TOKEN_RE = re.compile(r"(?i)\b(Xxobster\d+)\b")
+# Screen names like xxobster2ETHUSDT (digits may be followed by a symbol).
+_ACCOUNT_SCREEN_RE = re.compile(r"(?i)(?:^|[.\s_-])xxobster(\d+)(?=[A-Za-z_\s.-]|$)")
+
+
+def accounts_mentioned_in_text(text: str) -> set[str]:
+    """Pull canonical Xxobster* account names from process/screen/systemd text."""
+    out: set[str] = set()
+    if not text:
+        return out
+    for m in _ACCOUNT_FLAG_RE.finditer(text):
+        out.add(canonicalize_account_name(m.group(1)))
+    for m in _ACCOUNT_TOKEN_RE.finditer(text):
+        out.add(canonicalize_account_name(m.group(1)))
+    for m in _ACCOUNT_SCREEN_RE.finditer(text):
+        out.add(canonicalize_account_name("Xxobster" + m.group(1)))
+    return out
+
+
+def bot_runtime_blob(
+    bcfg: dict,
+    *,
+    screens: list[str],
+    systemd_lines: list[str],
+    proc_blob: str,
+) -> str:
+    """Concatenate screen/process/systemd text that belongs to this bot."""
+    screen_matchers = [str(x).lower() for x in (bcfg.get("screen_match") or []) if x]
+    process_matchers = [str(x).lower() for x in (bcfg.get("process_match") or []) if x]
+    path = str(bcfg.get("path") or "")
+    prefix = str(bcfg.get("systemd_prefix") or "").lower()
+    systemd_match = [str(x).lower() for x in (bcfg.get("systemd_match") or []) if x]
+    parts: list[str] = []
+    for scr in screens:
+        low = scr.lower()
+        if any(m in low for m in screen_matchers):
+            parts.append(scr)
+    for line in (proc_blob or "").split("\n"):
+        low = line.lower()
+        if path and path_appears_in_blob(path, line):
+            parts.append(line)
+            continue
+        if any(m and m in low for m in process_matchers):
+            parts.append(line)
+    for ln in systemd_lines:
+        ul = ln.lower()
+        unit = ln.split()[0].lower() if ln.split() else ""
+        if prefix and unit.startswith(prefix):
+            parts.append(ln)
+            continue
+        if any(m and m in ul for m in systemd_match):
+            parts.append(ln)
+    return "\n".join(parts)
+
+
+def registry_accounts(bcfg: dict) -> list[str]:
+    acc = bcfg.get("account")
+    names = acc if isinstance(acc, list) else ([acc] if acc else [])
+    return [canonicalize_account_name(str(a)) for a in names if a]
+
+
+def running_accounts_for_bot(
+    bcfg: dict,
+    *,
+    screens: list[str],
+    systemd_lines: list[str],
+    proc_blob: str,
+    running: bool,
+) -> list[str]:
+    """Accounts actually used by a live bot instance (not the full registry list).
+
+    Prefer ``--account`` / Xxobster tokens found on matching screens/processes/units.
+    If nothing is detectable and the registry has a single account, keep that.
+    Multi-account registry entries with no runtime hit return [].
+    """
+    configured = registry_accounts(bcfg)
+    if not running:
+        return []
+    blob = bot_runtime_blob(
+        bcfg, screens=screens, systemd_lines=systemd_lines, proc_blob=proc_blob
+    )
+    found = accounts_mentioned_in_text(blob)
+    if found:
+        if configured:
+            hit = [a for a in configured if a in found]
+            if hit:
+                return hit
+        # Same pack on another VPS can bind a different --account than the registry.
+        return sorted(found)
+    if configured and len(configured) == 1:
+        return list(configured)
+    return []
 
 
 def load_registry(path: str | Path | None = None) -> dict[str, Any]:
@@ -78,6 +181,14 @@ def detect_vps_id(registry: dict[str, Any]) -> str | None:
     env = os.environ.get("BOTSGENERAL_VPS")
     if env:
         return env.strip()
+    # Windows research machine: local collector, not a live VPS pin.
+    if os.name == "nt":
+        pin = Path.home() / ".botsgeneral" / "vps_id"
+        if pin.exists():
+            val = pin.read_text(encoding="utf-8", errors="ignore").strip()
+            if val:
+                return val
+        return "local"
     # Persistent pin written at install time
     for pin in (
         Path("/etc/botsgeneral/vps_id"),
@@ -115,8 +226,14 @@ def detect_vps_id(registry: dict[str, Any]) -> str | None:
 def discover_pairs(
     registry: dict[str, Any] | None = None,
     vps_id: str | None = None,
+    *,
+    only_running: bool = True,
 ) -> tuple[list[tuple[CandlePair, str]], list[str]]:
-    """Return (pairs_with_bot, warnings)."""
+    """Return (pairs_with_bot, warnings).
+
+    ``only_running`` (default): skip bots that are not live on this host so the
+    collector does not fetch leftover 1m/4h series nobody is trading.
+    """
     registry = registry or load_registry()
     vps_id = vps_id or detect_vps_id(registry)
     warnings: list[str] = []
@@ -142,7 +259,16 @@ def discover_pairs(
             continue
 
         running = _is_running(bcfg, screens, systemd, proc_blob)
+        if only_running and vps_id != "local" and not running:
+            continue
         pairs = parsers.parse_bot(name, bcfg)
+        pairs = refine_bot_pairs(
+            name=name,
+            bcfg=bcfg,
+            pairs=pairs,
+            proc_blob=proc_blob,
+            vps_id=vps_id,
+        )
         if bcfg.get("serve_candles", True) and not pairs:
             msg = f"{name}: no candle pairs discovered from config"
             if running:
@@ -225,23 +351,39 @@ def bot_runtime_status(registry: dict[str, Any], vps_id: str | None = None) -> l
     bot_names = list((registry.get("vps", {}).get(vps_id) or {}).get("bots") or [])
     screens = list_screens()
     systemd = list_systemd_units()
+    systemd_lines = list_systemd_unit_lines()
     proc_blob = process_cmdline_blob()
     out = []
     for name in bot_names:
         bcfg = (registry.get("bots") or {}).get(name) or {}
-        acc = bcfg.get("account")
-        if isinstance(acc, list):
-            account_disp: Any = [str(a) for a in acc]
+        running = _is_running(bcfg, screens, systemd, proc_blob)
+        live_accounts = running_accounts_for_bot(
+            bcfg,
+            screens=screens,
+            systemd_lines=systemd_lines,
+            proc_blob=proc_blob,
+            running=running,
+        )
+        # Display only accounts that are live for this bot; fall back to registry
+        # only when the bot is down (so operators still see intended wiring).
+        if running:
+            account_disp: Any = live_accounts
         else:
-            account_disp = acc
+            configured = registry_accounts(bcfg)
+            account_disp = configured if len(configured) != 1 else configured[0]
+            if isinstance(account_disp, list) and len(account_disp) == 0:
+                account_disp = bcfg.get("account")
         out.append(
             {
                 "bot": name,
+                "label": str(bcfg.get("label") or name),
                 "path": bcfg.get("path"),
                 "path_exists": Path(bcfg.get("path") or "").exists(),
                 "serve_candles": bool(bcfg.get("serve_candles", True)),
                 "account": account_disp,
-                "running": _is_running(bcfg, screens, systemd, proc_blob),
+                "registry_accounts": registry_accounts(bcfg),
+                "running_accounts": live_accounts,
+                "running": running,
             }
         )
     return out

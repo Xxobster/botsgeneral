@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from .contracts import CostConfig, FeeRole, Liquidity, Side, round_to_tick
 
 
@@ -79,6 +81,35 @@ def limit_entry_touched(*, side: Side, bar_high: float, bar_low: float, limit_pr
     if int(side) > 0:
         return float(bar_low) <= float(limit_price) + 1e-12
     return float(bar_high) >= float(limit_price) - 1e-12
+
+
+def first_limit_touch_ts_ms(
+    *,
+    side: Side,
+    limit_price: float,
+    ts_ms: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    window_start_ms: int,
+    window_end_ms: int,
+) -> int | None:
+    """Open time of the first lower-timeframe bar in ``[window_start, window_end)`` that
+    touches a resting limit. Vectorized. ``EXEC-021``.
+    """
+    ts = np.asarray(ts_ms, dtype=np.int64)
+    lo = int(np.searchsorted(ts, int(window_start_ms), side="left"))
+    hi = int(np.searchsorted(ts, int(window_end_ms), side="left"))
+    if lo >= hi:
+        return None
+    lim = float(limit_price)
+    if int(side) > 0:
+        hit = np.asarray(low[lo:hi], dtype=float) <= (lim + 1e-12)
+    else:
+        hit = np.asarray(high[lo:hi], dtype=float) >= (lim - 1e-12)
+    idx = np.flatnonzero(hit)
+    if idx.size == 0:
+        return None
+    return int(ts[lo + int(idx[0])])
 
 
 def price_fill(

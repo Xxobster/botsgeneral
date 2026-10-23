@@ -2,10 +2,10 @@
 
 | Alias | IP | Legacy SSH alias | Role |
 |-------|-----|------------------|------|
-| `ln1` | 94.156.189.76 | `eventactivities-vps` | tsm_vpa (Bybit); xgb sitrep; collector `@94…` |
+| `ln1` | 94.156.189.76 | `eventactivities-vps` | Trading + **fleet HMI hub** (`https://bots94.duckdns.org/`); hostname `vps-LIVENET` |
 | `ln2` | 212.73.150.178 | `poly-vps` / `news-vps` | divergences, crypthor2, karmaa_mp, news; collector `@212.73.150.178` |
-| `ln3` | 185.203.119.52 | `ld-vps` | LD fleet (Xxobster9/10/11); collector `@185…` |
-| `sm` | 212.73.150.149 | — | Separate host (hostname `vps-LIVENET`) |
+| `ln3` | 185.203.119.52 | `ld-vps` | LLM2 live (Binance structure candles); collector `@185…` |
+| `sm` | 212.73.150.149 | — | HMI **agent only** (no public HMI; hub on ln1) |
 
 ## PuTTY / OpenSSH keys (per host)
 
@@ -30,11 +30,13 @@ Legacy shared key `~\.ssh\id_ed25519` still works on ln1–ln3 aliases (`eventac
 | Bot | Path | Account | VPS |
 |-----|------|---------|-----|
 | news | `/home/crypto_alpha` | Xxobster6 | ln2 |
-| xgb | `/home/xgb` | Xxobster2 | ln1 |
+| xgb (removed 2026-08-25) | `/home/xgb` leftover tree | Xxobster2 | ln1 — not in `bots` host list |
 | tsm_vpa | `/opt/tsm-vpa` | Xxobster5 | ln1 |
 | divergences | `/opt/divergences` | Xxobster3 + Xxobster6 | ln2 |
 | crypthor2 | `/opt/crypthor` | Xxobster4 | ln2 |
 | karmaa_mp | `/root/karmaa_mp` | Xxobster5 | ln2 |
+| llm2 | `/home/llm2` / `/opt/llm2-structure*` | multi (Bybit accounts per cert) | ln1 (units often disabled) / ln3 |
+| tsm_chandelier | `/opt/tsm-chandelier` | Xxobster6 (BTC/ETH/SOL 1h min-size) | ln1 |
 | botsgeneral | `/opt/botsgeneral` | ops | ln1 / ln2 / ln3 |
 
 ## Ops notes

@@ -23,8 +23,11 @@ bots_registry.yaml  →  discover (parsers + process scan)
 |---------|------|
 | `collect` | Long-running writer + discovery (systemd) |
 | `discover` | One-shot print of demanded pairs |
-| `sitrep` | Disk/mem/load, bot UP/DOWN, pair freshness |
+| `sitrep` | Disk/mem/load/CPU, bot UP/DOWN, pair freshness |
 | `pnl` | Unified wallet + positions across Bybit accounts |
+| `report` / `bots` | Phone report: health + PnL by account/coin |
+| `hmi-snapshot` | JSON snapshot for the web Human-Machine Interface |
+| `hmi-agent` / `hmi-hub` | Localhost agent / site-root aggregator |
 
 ## Parsers
 
@@ -42,5 +45,7 @@ bots_registry.yaml  →  discover (parsers + process scan)
 | Host | Path | Unit |
 |------|------|------|
 | both | `/opt/botsgeneral` | `botsgeneral-collector@<VPS_IP>.service` |
+| trading VPS | `127.0.0.1:8788` | `botsgeneral-hmi-agent.service` |
+| ln1 `94.156.189.76` | `127.0.0.1:8787` + nginx `/` | `botsgeneral-hmi-hub.service` |
 | both | `/var/lib/botsgeneral/shared_candles.db` | data |
 | both | `/etc/botsgeneral/bybit_keys.txt` | secrets |

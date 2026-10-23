@@ -38,8 +38,20 @@ report = run_leakage_audit(
 assert report.ok, report.summary()
 ```
 
-Hard-fail checks: prefix-invariance, future-mutation, label-column name scan.
+Hard-fail checks (decisive — skipping any when a builder is supplied is itself a fail):
+- **builder-responsiveness** (`EXTERNAL_CACHE_SUSPECTED` / `CAUS-WAREHOUSE-001`)
+- **prefix-invariance**
+- **future-mutation**
+- **streaming/batch tip identity**
+- **forward-shift / near-label scan** (near-identity with a forward return)
+- **label-column name scan**
+- **decisive-checks-required**
+
 Advisory: forward-return correlation (still marks `LEAKAGE_POTENTIAL` when elevated).
+
+Warehouse-backed spaces must recompute into a temporary store inside `build_features`
+(see LLM2 `llm2.features.structure_recompute` + `llm2.evidence.four_proof`). Joining a
+calendar-keyed database alone is not a valid audit builder.
 
 Exit code / `report.ok` is false if any hard-fail finding exists. Training and testing
 must not proceed until leaks are fixed and the registry is cleared or the column is

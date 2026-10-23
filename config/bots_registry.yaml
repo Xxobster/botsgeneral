@@ -6,32 +6,114 @@ default_db_path: /var/lib/botsgeneral/shared_candles.db
 # 0 = fetch maximum history available from the exchange (paginate until empty)
 history_bars: 0
 # bump to force a full re-backfill on next collector start
-history_schema: "4"
+# "6" = Binance shared fetch baked onto market_data.fetch_binance (closed-bar OHLC identity)
+history_schema: "6"
 
 # Hostname / IP → which bot entries apply (collector uses BOTSGENERAL_VPS or auto-detect)
 vps:
   "94.156.189.76":
-    bots: [xgb, xgb_match, tsm_vpa]
+    # Per-unit pivot paths (not the stale /home/llm2 catch-all).
+    # xgb / Xxobster2 removed 2026-08-25; xgb_match removed 2026-09-06; tsm_vpa (Xxobster5) stopped 2026-10-22.
+    bots: [llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, tsm_chandelier, llm2_ema_sol_1h, llm2_hilbert_sol_1h]
   "212.73.150.178":
-    bots: [divergences, crypthor2, karmaa_mp, news]
+    # divergences / crypthor2(mp_oos) / karmaa_mp / news removed 2026-09-06; quad / fvg stopped 2026-09-09;
+    # 11 EMA min-size probes (Xxobster11) added 2026-10-07.
+    bots: [llm2, llm2_autonomy_376_sol, llm2_autonomy_705_eth, llm2_autonomy_013_sol, llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, llm2_pivot_eth_p50, llm2_pivot_sol_p50, llm2_ema_btc_1h, llm2_ema_eth_1h, llm2_ema_bnb_1h, llm2_ema_xrp_1h, llm2_ema_ada_1h, llm2_ema_doge_1h, llm2_ema_avax_1h, llm2_ema_link_1h, llm2_ema_dot_1h, llm2_ema_trx_1h, llm2_ema_xlm_1h]
   "185.203.119.52":
-    # 3 account groups (Xxobster9/10/11) share the same Binance 1h pairs via collector
-    bots: [ld, xgb, xgb_match]
+    # llm2 catch-all removed 2026-09-06 (no live units left on this host).
+    bots: []
+  "212.73.150.149":
+    # Human-Machine Interface hub only (no live trading units)
+    bots: []
+  local:
+    # Windows research machine — live-pack scan, not a live trading host
+    bots: [llm2, tsm_chandelier, tsm_vpa]
 
 bots:
+  # LLM2 — structure candles from Binance futures Last (research parity)
+  llm2:
+    serve_candles: true
+    exchange: binance
+    # Runtime report uses --account from live units; keep registry list to live accounts only.
+    account: [Xxobster7, Xxobster8, Xxobster9]
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+      - SOLUSDT
+    # Running pivot packs are 15m. Touch / LIVE-DATA-001 also needs 1m tips.
+    timeframe: 15m
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf:
+      15m: 3000
+      1m: 500
+    path: /home/llm2
+    path_local: D:/projects/LLM2
+    local_pack_roots:
+      - D:/projects/LLM2/artifacts/live_packs/pivot_sol_geo_tp1_sl1_p75_w4
+      - D:/projects/LLM2/artifacts/live_packs/pivot_eth_p75_ctrl_atr_w4
+      - D:/projects/LLM2/artifacts/live_packs/pivot_eth_p50_tp05_sl05_w4
+      - D:/projects/LLM2/artifacts/live_packs/pivot_sol_p50_tp05_sl05_w4
+    parser: none
+    process_match: ["micro_runner", "llm2.live", "structure_v1"]
+    screen_match: ["llm2"]
+    systemd_match: ["llm2-"]
+
+  # Live pivot units on 94.156.189.76 / Xxobster7 — real install trees (path_ok).
+  llm2_pivot_sol_geo:
+    serve_candles: true
+    exchange: binance
+    account: [Xxobster7, Xxobster8]
+    symbols: [SOLUSDT]
+    timeframe: 15m
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf:
+      15m: 3000
+      1m: 500
+    path: /opt/llm2-pivot-sol-geo-p75-w4
+    parser: none
+    process_match: ["--pack /opt/llm2-pivot-sol-geo-p75-w4/pack"]
+    systemd_match: ["llm2-pivot-sol-geo-p75-w4"]
+    screen_match: ["llm2-pivot-sol-geo-p75-w4"]
+    notes: "SOL 15m pivot geo p75 w4; Xxobster7; Binance signal / Bybit exec"
+
+  llm2_pivot_eth_ctrl:
+    serve_candles: true
+    exchange: binance
+    account: [Xxobster7, Xxobster8]
+    symbols: [ETHUSDT]
+    timeframe: 15m
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf:
+      15m: 3000
+      1m: 500
+    path: /opt/llm2-pivot-eth-p75-ctrl-atr-w4
+    parser: none
+    process_match: ["--pack /opt/llm2-pivot-eth-p75-ctrl-atr-w4/pack"]
+    systemd_match: ["llm2-pivot-eth-p75-ctrl-atr-w4"]
+    screen_match: ["llm2-pivot-eth-p75-ctrl-atr-w4"]
+    notes: "ETH 15m pivot p75 control ATR w4; Xxobster7; Binance signal / Bybit exec"
+
   news:
     serve_candles: true
     exchange: binance
     account: Xxobster6
     path: /home/crypto_alpha
+    min_history_bars: 500
     parser: news_yaml
     process_match: ["crypto_alpha", "run_live_bybit"]
     screen_match: ["crypto_alpha"]
 
+  # Retired 2026-08-25 on ln1. Definition kept so old paths stay documented.
+  # Not assigned to any live VPS host list.
   xgb:
     serve_candles: false
     exchange: binance
     account: Xxobster2
+    enabled: false
+    status: REMOVED
     symbols:
       - BTCUSDT
       - ETHUSDT
@@ -66,6 +148,7 @@ bots:
       - SOLUSDT
       - BNBUSDT
     timeframe: 1h
+    min_history_bars: 2000
     # HTF features resample from 1h; keep 1h as the served series
     path: /home/ld
     parser: none
@@ -79,17 +162,22 @@ bots:
     # Xxobster3: BTC 4h conf + ETH 1h continuation; Xxobster6: ETH 1h confluence (same pair, separate account)
     account: [Xxobster3, Xxobster6]
     path: /opt/divergences
+    min_history_bars: 2000
     parser: divergences_launch
     process_match: ["run_live", "divergences"]
     screen_match: ["bybit_"]
 
   crypthor2:
+    # Strategy id on disk is *mp_oos (Market Profile out-of-sample), not the folder name.
+    label: mp_oos
     serve_candles: true
     exchange: bybit
     account: Xxobster4
     path: /opt/crypthor
     parser: crypthor_services
     # Native 1h/4h for MTF indicators (plus 5m source)
+    min_history_bars: 5000
+    min_history_bars_by_tf: { "5m": 5000, "1h": 2000, "4h": 500 }
     also_fetch_timeframes: ["1h", "4h"]
     process_match: ["run_live_bot", "crypthor"]
     systemd_prefix: crypthor-
@@ -102,6 +190,8 @@ bots:
     path: /root/karmaa_mp
     parser: karmaa_config
     # Native 1h/4h for ltf/mtf/adx (plus 5m source)
+    min_history_bars: 5000
+    min_history_bars_by_tf: { "5m": 5000, "1h": 2000, "4h": 500 }
     also_fetch_timeframes: ["1h", "4h"]
     process_match: ["run_live_bot", "karmaa"]
     screen_match: ["Xxobster5", "karmaa"]
@@ -113,6 +203,8 @@ bots:
     # Live pack + systemd use Xxobster5 (not bare Xxobster)
     account: Xxobster5
     path: /opt/tsm-vpa
+    path_local: D:/projects/smartmoney
+    min_history_bars: 400
     parser: tsm_vpa_pack
     symbols:
       - VETUSDT
@@ -123,3 +215,377 @@ bots:
     systemd_prefix: "tsm-vpa@"
     screen_match: ["tsm-vpa"]
     systemd_match: ["tsm-vpa@"]
+
+  # Secret Mindset chandelier 1h — Binance Last candles (research proxy) via shared DB
+  tsm_chandelier:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster6
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+      - SOLUSDT
+    timeframe: 1h
+    min_history_bars: 200
+    path: /opt/tsm-chandelier
+    path_local: D:/projects/smartmoney/deploy/tsm_chandelier
+    parser: none
+    process_match: ["tsm-chandelier", "chand.live", "run_live_bot.py"]
+    systemd_prefix: "tsm-chandelier@"
+    screen_match: ["tsm-chandelier"]
+    systemd_match: ["tsm-chandelier@"]
+
+  llm2_ema_sol_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster4
+    symbols: [SOLUSDT]
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "1h": 3000, "1m": 500 }
+    path: /opt/llm2-ema-sol-1h
+    path_local: D:/projects/LLM2
+    parser: none
+    process_match: ["--pack /opt/llm2-ema-sol-1h/pack", "ema_stack_runner"]
+    systemd_match: ["llm2-ema-sol-1h"]
+    screen_match: ["llm2-ema-sol-1h"]
+    notes: "SOL 1h power_ema_stack_long Post-Only; Xxobster4; RESEARCH_ONLY"
+
+  llm2_hilbert_sol_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster3
+    symbols: [SOLUSDT]
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "1h": 3000, "1m": 500 }
+    path: /opt/llm2-hilbert-sol-1h
+    path_local: D:/projects/LLM2
+    parser: none
+    process_match: ["--pack /opt/llm2-hilbert-sol-1h/pack"]
+    systemd_match: ["llm2-hilbert-sol-1h"]
+    screen_match: ["llm2-hilbert-sol-1h"]
+    notes: "SOL 1h hilbert_amp_fade Post-Only two-sided; Xxobster3; RESEARCH_ONLY"
+
+  llm2_autonomy_376_sol:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster2
+    path: /opt/llm2-autonomy-376-sol-sma540
+    parser: none
+    timeframe: 15m
+    symbols: [SOLUSDT]
+    process_match: ["llm2.live.pivot_runner", "autonomy-376"]
+    systemd_match: ["llm2-autonomy-376-sol-sma540"]
+    notes: "SOL 15m autonomy gen376 sma540_below H4 filter on pivot control"
+
+  llm2_autonomy_705_eth:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster2
+    path: /opt/llm2-autonomy-705-eth-ema1320
+    parser: none
+    timeframe: 15m
+    symbols: [ETHUSDT]
+    process_match: ["llm2.live.pivot_runner", "autonomy-705"]
+    systemd_match: ["llm2-autonomy-705-eth-ema1320"]
+    notes: "ETH 15m autonomy gen705 ema1320_below H4 filter on pivot control"
+
+  llm2_autonomy_013_sol:
+    serve_candles: true
+    exchange: bybit
+    account: Xxobster10
+    path: /opt/llm2-autonomy-013-sol-atrrel
+    parser: none
+    timeframe: 15m
+    symbols: [SOLUSDT]
+    process_match: ["llm2.live.pivot_runner", "autonomy-013"]
+    systemd_match: ["llm2-autonomy-013-sol-atrrel"]
+    notes: "SOL 15m autonomy gen013 atr_rel_cross_up_1 H8 filter on pivot control"
+
+  llm2_pivot_eth_p50:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster9
+    symbols: [ETHUSDT]
+    timeframe: 15m
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "15m": 3000, "1m": 500 }
+    path: /opt/llm2-pivot-eth-p50-tp05-sl05
+    parser: none
+    process_match: ["--pack /opt/llm2-pivot-eth-p50-tp05-sl05/pack"]
+    systemd_match: ["llm2-pivot-eth-p50-tp05-sl05"]
+    notes: "ETH 15m pivot p50 0.5pct; Xxobster9; Binance signal / Bybit exec"
+
+  llm2_pivot_sol_p50:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster9
+    symbols: [SOLUSDT]
+    timeframe: 15m
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "15m": 3000, "1m": 500 }
+    path: /opt/llm2-pivot-sol-p50-tp05-sl05
+    parser: none
+    process_match: ["--pack /opt/llm2-pivot-sol-p50-tp05-sl05/pack"]
+    systemd_match: ["llm2-pivot-sol-p50-tp05-sl05"]
+    notes: "SOL 15m pivot p50 0.5pct; Xxobster9; Binance signal / Bybit exec"
+
+  # LLM2 EMA 1-hour min-size probes on live-network-2, Xxobster11 (2026-10-07)
+  llm2_ema_btc_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - BTCUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-btc-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-btc-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-btc-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: BTCUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_eth_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - ETHUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-eth-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-eth-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-eth-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: ETHUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_bnb_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - BNBUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-bnb-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-bnb-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-bnb-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: BNBUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_xrp_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - XRPUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-xrp-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-xrp-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-xrp-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: XRPUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_ada_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - ADAUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-ada-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-ada-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-ada-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: ADAUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_doge_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - DOGEUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-doge-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-doge-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-doge-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: DOGEUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_avax_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - AVAXUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-avax-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-avax-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-avax-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: AVAXUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_link_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - LINKUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-link-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-link-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-link-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: LINKUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_dot_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - DOTUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-dot-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-dot-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-dot-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: DOTUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_trx_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - TRXUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-trx-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-trx-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-trx-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: TRXUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+  llm2_ema_xlm_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster11
+    symbols:
+    - XLMUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-ema-xlm-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-ema-xlm-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-ema-xlm-1h
+    start_date: '2026-10-08'
+    authorized_from_utc: '2026-10-08T00:00:00Z'
+    notes: XLMUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
