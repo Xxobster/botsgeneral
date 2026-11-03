@@ -32,6 +32,7 @@ def default_db_path(registry: dict) -> str:
 
 class Collector:
     def __init__(self, registry_path: str | None = None, db_path: str | None = None, vps_id: str | None = None):
+        self._registry_path = registry_path
         self.registry = load_registry(registry_path)
         self.vps_id = vps_id or detect_vps_id(self.registry)
         self.db_path = db_path or default_db_path(self.registry)
@@ -124,7 +125,25 @@ class Collector:
         self.db.close()
         log.info("Collector stopped")
 
+    def _reload_registry(self) -> None:
+        """Hot-reload bots_registry.yaml each discovery tick (bots added after start must get candles).
+
+        On a read/parse error keep the last good registry. db path, history_schema and
+        history_bars stay as at startup (changing them still needs a restart).
+        """
+        try:
+            fresh = load_registry(self._registry_path)
+            if not isinstance(fresh, dict) or not fresh.get("vps"):
+                raise ValueError("registry empty or missing 'vps'")
+        except Exception as exc:
+            log.warning("registry reload failed, keeping previous: %s", exc)
+            return
+        if fresh != self.registry:
+            log.warning("registry changed on disk: hot-reloaded")
+            self.registry = fresh
+
     def _discovery_and_bootstrap(self) -> None:
+        self._reload_registry()
         items, warnings = discover_pairs(self.registry, self.vps_id)
         for w in warnings:
             log.warning("discover: %s", w)
