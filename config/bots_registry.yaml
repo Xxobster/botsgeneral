@@ -14,7 +14,8 @@ vps:
   "94.156.189.76":
     # Per-unit pivot paths (not the stale /home/llm2 catch-all).
     # xgb / Xxobster2 removed 2026-08-25; xgb_match removed 2026-09-06; tsm_vpa (Xxobster5) stopped 2026-10-22.
-    bots: [llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, tsm_chandelier, llm2_ema_sol_1h, llm2_hilbert_sol_1h]
+    # hilbert stopped 2026-11-03 (Xxobster3 kept for a future bot); EMA short pilot (Xxobster12) added 2026-10-25.
+    bots: [llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, tsm_chandelier, llm2_ema_sol_1h, llm2_emashort_avax_1h, llm2_emashort_sol_1h, llm2_emashort_xrp_1h]
   "212.73.150.178":
     # divergences / crypthor2(mp_oos) / karmaa_mp / news removed 2026-09-06; quad / fvg stopped 2026-09-09;
     # 11 EMA min-size probes (Xxobster11) added 2026-10-07.
@@ -268,6 +269,57 @@ bots:
     systemd_match: ["llm2-hilbert-sol-1h"]
     screen_match: ["llm2-hilbert-sol-1h"]
     notes: "SOL 1h hilbert_amp_fade Post-Only two-sided; Xxobster3; RESEARCH_ONLY"
+
+  llm2_emashort_avax_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster12
+    symbols: [AVAXUSDT]
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "1h": 3000, "1m": 500 }
+    path: /opt/llm2-emashort-avax-1h
+    parser: none
+    process_match: ["--pack /opt/llm2-emashort-avax-1h/pack", "ema_stack_runner"]
+    systemd_match: ["llm2-emashort-avax-1h"]
+    start_date: "2026-10-25"
+    authorized_from_utc: "2026-10-25T08:00:00Z"
+    notes: "AVAXUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-2%, Xxobster12 (hedge); RESEARCH_ONLY"
+
+  llm2_emashort_sol_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster12
+    symbols: [SOLUSDT]
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "1h": 3000, "1m": 500 }
+    path: /opt/llm2-emashort-sol-1h
+    parser: none
+    process_match: ["--pack /opt/llm2-emashort-sol-1h/pack", "ema_stack_runner"]
+    systemd_match: ["llm2-emashort-sol-1h"]
+    start_date: "2026-10-25"
+    authorized_from_utc: "2026-10-25T08:00:00Z"
+    notes: "SOLUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-2%, Xxobster12 (hedge); RESEARCH_ONLY"
+
+  llm2_emashort_xrp_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster12
+    symbols: [XRPUSDT]
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes: [1m]
+    min_history_bars_by_tf: { "1h": 3000, "1m": 500 }
+    path: /opt/llm2-emashort-xrp-1h
+    parser: none
+    process_match: ["--pack /opt/llm2-emashort-xrp-1h/pack", "ema_stack_runner"]
+    systemd_match: ["llm2-emashort-xrp-1h"]
+    start_date: "2026-10-25"
+    authorized_from_utc: "2026-10-25T08:00:00Z"
+    notes: "XRPUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-2%, Xxobster12 (hedge); RESEARCH_ONLY"
 
   llm2_autonomy_376_sol:
     serve_candles: true
