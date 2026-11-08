@@ -489,6 +489,11 @@ class SimConfig:
     # Project default (2026-07-26): stop-loss is a limit at the level, no exit slip, assumed
     # to fill at small size. Set True to model a stop-market that gaps through and slips.
     stop_is_stop_market: bool = False
+    # 2026-11-04 (EXEC-022): the lower-timeframe sub-bar that contains a resting-limit fill cannot say
+    # whether its favourable extreme happened before or after the fill. True = conservative: in that
+    # fill sub-bar the favourable side is clipped to the fill price (no take-profit in the fill minute,
+    # stop still live). False = legacy behaviour (whole sub-bar counts, optimistic).
+    fill_subbar_conservative: bool = True
     # Position book. ``HEDGE`` = long and short open together, each with own TP/SL.
     position_mode: PositionMode = PositionMode.ONE_WAY
     # Legacy/one-way: when False, at most one open position per symbol regardless of

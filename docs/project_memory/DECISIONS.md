@@ -261,3 +261,12 @@ pessimistic one is the useful one.
 - No strategy optimization or ML training in this repo.
 - No placing orders.
 - No replacing xgb **or news** candle fetch until explicitly requested.
+
+## EXEC-022 — fill sub-bar conservative (tradesim 1.2.1)
+
+2026-11-04 (draft 1.2.0, clip to the fill price) revised 2026-11-08 (1.2.1): in the lower-timeframe sub-bar that holds a
+resting-limit fill, the favourable side is clipped to `max(fill, close)` (long) / `min(fill, close)` (short): a take-profit
+counts in the fill minute only if that minute CLOSED beyond the level; the stop stays live and wins when both qualify
+(`SimConfig.fill_subbar_conservative=True`). Reason: live exec-gap audit (LLM2 repo, `EXEC_GAP_PIVOT_P50_2026-11-04.md` §4.1,
+ETH 2026-10-17 21:32). Results of resting-limit strategies produced with tradesim < 1.2.1 are optimistic on entry-bar
+take-profits. The 1.2.0 draft was never committed; any result stamped 1.2.0 used the stricter clip-to-fill rule.

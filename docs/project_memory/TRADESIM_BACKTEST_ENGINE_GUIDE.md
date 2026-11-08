@@ -207,6 +207,15 @@ When the decision candle’s high/low contains **both** TP and SL, the engine wa
 
 If touch data does not fully cover that decision bar → fall back to **SL first**.
 
+### EXEC-022 — fill sub-bar (tradesim 1.2.1, 2026-11-08)
+
+With a resting limit entry and touch bars, the touch sub-bar that contains the fill does not say whether its
+high/low happened before or after the fill. Since 1.2.1 (`SimConfig.fill_subbar_conservative`, default `True`) its
+favourable side is clipped to `max(fill, close)` (long) / `min(fill, close)` (short): a take-profit in the fill minute
+counts only if that minute closed beyond the level; the adverse side is kept, so the stop wins when both qualify.
+Old behaviour: `replace(sim, fill_subbar_conservative=False)`. Test: `tests/test_exec_022_fill_subbar.py`
+(includes the ETH 2026-10-17 21:32 regression).
+
 ### When to refresh candles (research machine)
 
 Warehouse: `D:\projectsdata\candles\market_ohlcv.sqlite`

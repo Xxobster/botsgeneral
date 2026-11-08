@@ -305,6 +305,14 @@ REGISTRY: tuple[ConformanceItem, ...] = (
         fixture=True,
         note="Decision timeframe places the order; 1-minute (or finer) sequences fill vs take-profit vs stop.",
     ),
+    _item(
+        "EXEC-022",
+        "FILL SUB-BAR: the lower-timeframe sub-bar that contains a resting-limit fill cannot order its extremes relative to the fill. Its favourable side is clipped to max(fill, close) (long) / min(fill, close) (short): a take-profit counts in the fill minute only if that minute closed beyond the level; the stop stays live and wins over a take-profit that also qualifies. Regression: ETH 2026-10-17 21:32 (open 2394.42 above TP 2392.07, fill 2380.17).",
+        "9.6.1 / 10",
+        _ALL,
+        fixture=False,
+        note="tradesim 1.2.1 (SimConfig.fill_subbar_conservative, default True). Bound by tests/test_exec_022_fill_subbar.py.",
+    ),
     # ---------------------------------------------------------------- FUND -----------
     _item(
         "FUND-001",

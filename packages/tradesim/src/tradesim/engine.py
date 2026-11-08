@@ -219,6 +219,7 @@ class _Position:
     legs: list[tuple[str, int, float, float]] = field(default_factory=list)
     exit_notional: float = 0.0
     funding_charged_this_bar: float = 0.0
+    limit_fill: bool = False
     tag: str = ""
     # Frozen copy of the take-profit ladder at open (labels survive as legs fill).
     planned_tp: tuple[tuple[str, float, float], ...] = ()
@@ -835,6 +836,7 @@ class _Engine:
             entry_ts_ms=bar.ts_ms,
             entry_bar_index=i,
             funding_from_ms=funding_from,
+            limit_fill=(entry_order == EntryOrder.LIMIT),
             levels=levels,
             stop_price=stop_price if stop_price is not None else float("nan"),
             target_price=target_price,
@@ -927,6 +929,8 @@ class _Engine:
 
         path_bar = self._post_entry_path(pos, bar, just_opened)
         touch = self._touch_slice(rt, bar, since_ms=(pos.funding_from_ms if just_opened else bar.ts_ms))
+        if just_opened and touch and self.sim.fill_subbar_conservative and pos.limit_fill:
+            touch = self._clip_fill_subbar(pos, touch)
         resolution = resolve_bar(pos.levels, path_bar, policy=policy, touch_bars=touch)
 
         pos.ambiguous = pos.ambiguous or resolution.ambiguous
@@ -949,6 +953,31 @@ class _Engine:
             role = _ROLE_FOR_REASON[event.reason]
             self._close(rt, pos, event.price, event.reason, bar, i, role, label=event.label)
             return
+
+    def _clip_fill_subbar(self, pos: _Position, touch: list[Bar]) -> list[Bar]:
+        """EXEC-022: the sub-bar holding a resting-limit fill is only partly after the fill.
+
+        A sub-bar does not say whether its favourable extreme came before or after the fill. Only
+        the CLOSE is certainly after the fill, so the favourable side is clipped to
+        ``max(fill, close)`` (long) / ``min(fill, close)`` (short): a take-profit counts in the fill
+        minute only if that minute closed beyond the level. The adverse side is kept whole, so a
+        stop inside the fill minute stays live and (adverse same-bar policy) wins over a take-profit
+        that also qualifies.
+        """
+        first = touch[0]
+        if not (int(first.ts_ms) <= int(pos.funding_from_ms) < int(first.end_ts_ms)):
+            return touch
+        px = float(pos.entry_price)
+        cl = float(first.close)
+        if int(pos.side) > 0:
+            hi = min(first.high, max(px, cl))
+            op = min(first.open, hi)
+            clipped = Bar(first.ts_ms, op, hi, min(first.low, px), first.close, first.timeframe_ms)
+        else:
+            lo = max(first.low, min(px, cl))
+            op = max(first.open, lo)
+            clipped = Bar(first.ts_ms, op, max(first.high, px), lo, first.close, first.timeframe_ms)
+        return [clipped, *touch[1:]]
 
     def _post_entry_path(self, pos: _Position, bar: Bar, just_opened: bool) -> Bar:
         """The portion of this bar the position was actually exposed to.
