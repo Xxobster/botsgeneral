@@ -13,7 +13,9 @@ read on heartbeat. Fail closed = no new entries; keep protective exits.
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -129,6 +131,68 @@ def fetch_server_time_ms(exchange: str, *, timeout_sec: float = 5.0) -> int:
     raise ValueError(f"no server-time endpoint for exchange={exchange!r}")
 
 
+# --- resilient server-time fetch (2026-11-09) -------------------------------------------------
+# Root cause of the intermittent SERVER_TIME_FAIL (docs/reports/live/SERVER_TIME_FAIL_2026-11-09.md in the LLM2 repo):
+# ~93 % of failures were transient DNS errors ("Temporary failure in name resolution") of a single, un-retried
+# HTTPS call made by every unit in the same seconds around a bar close. Fix, safety-preserving:
+#   1. bounded retry with jittered backoff for the transient fetch errors;
+#   2. if the fetch still fails, fall back to the LAST SUCCESSFULLY MEASURED exchange-minus-local offset, only while it
+#      is younger than SERVER_OFFSET_MAX_AGE_SEC. The skew measured at that fetch is re-applied, so a drifted clock is
+#      still caught (CLOCK_SKEW); with no fresh offset the gate still fails closed (SERVER_TIME_FAIL).
+SERVER_TIME_ATTEMPTS = 3
+SERVER_TIME_BACKOFF_SEC = (0.25, 0.75)       # sleep before attempt 2 and 3 (+ up to 50 % jitter)
+SERVER_TIME_BUDGET_SEC = 8.0                 # total wall budget of one gate check (was one 5 s attempt)
+SERVER_OFFSET_MAX_AGE_SEC = 120.0
+
+_OFFSET_LOCK = threading.Lock()
+_OFFSET_CACHE: dict[str, tuple[float, int, int]] = {}   # exchange -> (monotonic_s, offset_ms, skew_ms)
+
+
+def _record_server_offset(exchange: str, *, server_ms: int, wall_before_ms: int, wall_after_ms: int, skew_ms: int) -> None:
+    mid = (int(wall_before_ms) + int(wall_after_ms)) // 2
+    with _OFFSET_LOCK:
+        _OFFSET_CACHE[str(exchange).lower().strip()] = (time.monotonic(), int(server_ms) - mid, int(skew_ms))
+
+
+def _cached_server_now(exchange: str, *, wall_ms: int) -> tuple[int, int, float] | None:
+    """(server_now_ms, skew_ms, age_s) from the last good fetch, or None if missing or older than the max age."""
+    with _OFFSET_LOCK:
+        hit = _OFFSET_CACHE.get(str(exchange).lower().strip())
+    if hit is None:
+        return None
+    mono, offset_ms, skew_ms = hit
+    age = time.monotonic() - mono
+    if age > SERVER_OFFSET_MAX_AGE_SEC:
+        return None
+    return int(wall_ms) + offset_ms, skew_ms, age
+
+
+def fetch_server_time_with_retry(
+    exchange: str, *, timeout_sec: float = 5.0, attempts: int | None = None, budget_sec: float | None = None
+) -> tuple[int, int, float]:
+    """(server_ms, attempts_used, elapsed_s); raises the last error with attempts/elapsed in the message."""
+    n = int(attempts if attempts is not None else SERVER_TIME_ATTEMPTS)
+    budget = float(budget_sec if budget_sec is not None else SERVER_TIME_BUDGET_SEC)
+    t0 = time.monotonic()
+    last: Exception | None = None
+    for k in range(max(1, n)):
+        left = budget - (time.monotonic() - t0)
+        if k > 0:
+            back = SERVER_TIME_BACKOFF_SEC[min(k - 1, len(SERVER_TIME_BACKOFF_SEC) - 1)]
+            back *= 1.0 + random.random() * 0.5
+            if left <= back:
+                break
+            time.sleep(back)
+            left = budget - (time.monotonic() - t0)
+        try:
+            ms = fetch_server_time_ms(exchange, timeout_sec=max(0.5, min(float(timeout_sec), left)))
+            return int(ms), k + 1, time.monotonic() - t0
+        except Exception as exc:  # noqa: BLE001 - transient network errors; classified by the caller
+            last = exc
+    elapsed = time.monotonic() - t0
+    raise RuntimeError(f"{type(last).__name__}: {last} [attempts={k + 1} elapsed={elapsed:.2f}s]") from last
+
+
 def evaluate_tip_freshness(
     *,
     exchange: str,
@@ -155,24 +219,32 @@ def evaluate_tip_freshness(
 
     server = server_now_ms
     fetched_server = False
+    cached_skew: int | None = None
+    note = ""
     if server is None and fetch_server_time:
         try:
-            server = fetch_server_time_ms(ex, timeout_sec=timeout_sec)
+            server, n_try, took = fetch_server_time_with_retry(ex, timeout_sec=timeout_sec)
             fetched_server = True
+            if n_try > 1:
+                note = f"server_time_retried attempts={n_try} elapsed={took:.2f}s"
         except Exception as exc:  # noqa: BLE001
-            return TipFreshnessResult(
-                ok=False,
-                code="SERVER_TIME_FAIL",
-                exchange=ex,
-                symbol=sym,
-                timeframe=tf,
-                local_tip_ms=int(local_tip_ms) if local_tip_ms is not None else None,
-                expected_tip_ms=None,
-                server_now_ms=None,
-                local_wall_ms=wall_before,
-                clock_skew_ms=None,
-                detail=f"{type(exc).__name__}: {exc}",
-            )
+            cached = _cached_server_now(ex, wall_ms=int(time.time() * 1000)) if local_wall_ms is None else None
+            if cached is None:
+                return TipFreshnessResult(
+                    ok=False,
+                    code="SERVER_TIME_FAIL",
+                    exchange=ex,
+                    symbol=sym,
+                    timeframe=tf,
+                    local_tip_ms=int(local_tip_ms) if local_tip_ms is not None else None,
+                    expected_tip_ms=None,
+                    server_now_ms=None,
+                    local_wall_ms=wall_before,
+                    clock_skew_ms=None,
+                    detail=f"{type(exc).__name__}: {exc}",
+                )
+            server, cached_skew, c_age = cached
+            note = f"server_time_cached age={c_age:.1f}s after {type(exc).__name__}: {exc}"
     if server is None:
         return TipFreshnessResult(
             ok=False,
@@ -196,7 +268,12 @@ def evaluate_tip_freshness(
             server_now_ms=server_i,
             wall_after_ms=wall_after,
         )
+        _record_server_offset(
+            ex, server_ms=server_i, wall_before_ms=wall_before, wall_after_ms=wall_after, skew_ms=skew
+        )
         wall = wall_after
+    elif cached_skew is not None:
+        skew = int(cached_skew)         # skew measured at the last good fetch (still enforced below)
     else:
         skew = abs(wall - server_i)
     expected = expected_closed_open_ms(tf, server_now_ms=server_i)
@@ -242,7 +319,7 @@ def evaluate_tip_freshness(
             server_now_ms=server_i,
             local_wall_ms=wall,
             clock_skew_ms=skew,
-            detail="local tip behind exchange-server expected closed open",
+            detail="local tip behind exchange-server expected closed open" + (f" | {note}" if note else ""),
         )
     if tip > expected:
         return TipFreshnessResult(
@@ -256,7 +333,7 @@ def evaluate_tip_freshness(
             server_now_ms=server_i,
             local_wall_ms=wall,
             clock_skew_ms=skew,
-            detail="local tip ahead of exchange-server expected closed open",
+            detail="local tip ahead of exchange-server expected closed open" + (f" | {note}" if note else ""),
         )
     return TipFreshnessResult(
         ok=True,
@@ -269,7 +346,7 @@ def evaluate_tip_freshness(
         server_now_ms=server_i,
         local_wall_ms=wall,
         clock_skew_ms=skew,
-        detail="",
+        detail=note,
     )
 
 
