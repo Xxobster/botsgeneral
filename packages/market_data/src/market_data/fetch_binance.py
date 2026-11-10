@@ -9,6 +9,7 @@ from typing import Literal
 import pandas as pd
 import requests
 
+from market_data.http_retry import requests_get_retry
 from market_data.keys_util import resolve_binance_keys
 
 log = logging.getLogger(__name__)
@@ -143,7 +144,9 @@ def fetch_klines(
         if hard_end is not None:
             params["endTime"] = hard_end
         try:
-            r = session.get(url, params=params, headers=headers or None, timeout=45)
+            r = requests_get_retry(
+                session, url, params=params, headers=headers or None, timeout=45
+            )
         except requests.RequestException as e:
             raise BinanceBlockedError(
                 f"Binance unreachable ({e}). Activate VPN, then re-run."
