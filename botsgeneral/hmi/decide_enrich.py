@@ -69,7 +69,14 @@ def _extract_fields(payload: dict[str, Any]) -> dict[str, Any]:
         pass
 
     display_risk = actual if actual is not None else risk
+    # Risk band (e.g. "1-2") inferred from intended risk = lo + (hi-lo)*conf with lo = 1 %.
+    # Only shown when confidence is high enough for the inference to be stable.
+    band = None
+    if conf is not None and risk is not None and conf >= 5.0:
+        hi = 1.0 + (risk - 1.0) / (conf / 100.0)
+        band = f"1-{hi:.0f}" if abs(hi - round(hi)) < 0.05 else f"1-{hi:.1f}"
     out: dict[str, Any] = {
+        "risk_band_pct": band,
         "confidence_pct": conf,
         "risk_pct": risk,
         "actual_risk_pct": actual,
@@ -276,6 +283,7 @@ def _apply_fields(target: dict[str, Any], rec: dict[str, Any] | None) -> None:
         "risk_pct",
         "actual_risk_pct",
         "display_risk_pct",
+        "risk_band_pct",
         "sizing_mode",
         "confidence_source",
         "bot_id",
