@@ -46,7 +46,9 @@ function posDir(side) {
 
 function riskCell(pct, band) {
   const v = fmtPctVal(pct);
-  return band ? `${v} <small title="bande de risque du bot">(bande ${band} %)</small>` : v;
+  if (!band) return v;
+  const label = band === "1-1" ? "1 % fixe" : `bande ${band} %`;
+  return `${v} <small title="bande de risque du bot">(${label})</small>`;
 }
 
 function riskPctOf(row) {
