@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 ENGINE_NAME = "tradesim"
-ENGINE_VERSION = "1.2.1"
+ENGINE_VERSION = "1.3.0"
 
 # Bumped whenever the meaning of a stored SimResult field changes.
-RESULT_SCHEMA_VERSION = "tradesim_result_v1"
+RESULT_SCHEMA_VERSION = "tradesim_result_v2"

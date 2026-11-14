@@ -90,6 +90,8 @@ class ExitPolicy:
     stop_is_stop_market: bool = False
     market_exit_slippage: float = 0.0
     tick_size: float = 0.0
+    stop_trigger: str = "last"
+    liquidation_trigger: str = "last"
 
 
 @dataclass
@@ -134,6 +136,9 @@ def resolve_bar(
     *,
     policy: ExitPolicy,
     touch_bars: Sequence[Bar] | None = None,
+    mark_bar: Bar | None = None,
+    mark_touch_bars: Sequence[Bar] | None = None,
+    first_open_is_observed: bool = True,
 ) -> BarResolution:
     """Decide what this bar does to the position described by ``levels``.
 
@@ -142,7 +147,9 @@ def resolve_bar(
     ordering question with data instead of with a convention.
     """
     if touch_bars:
-        return _resolve_with_touch(levels, touch_bars, policy)
+        return _resolve_with_touch(levels, touch_bars, policy, mark_touch_bars, first_open_is_observed)
+    if mark_bar is not None and "mark" in {policy.stop_trigger, policy.liquidation_trigger}:
+        return _resolve_mark_last(levels, bar, mark_bar, policy, first_open_is_observed)
 
     res = BarResolution(high=bar.high, low=bar.low)
     sign = levels.sign
@@ -224,6 +231,79 @@ def resolve_bar(
     return res
 
 
+def _resolve_mark_last(
+    levels: ProtectiveLevels, last: Bar, mark: Bar, policy: ExitPolicy, open_is_observed: bool,
+) -> BarResolution:
+    """Resolve aligned price feeds without executing a Last order at a Mark price."""
+    if (last.ts_ms, last.timeframe_ms) != (mark.ts_ms, mark.timeframe_ms):
+        raise ValueError("Last and Mark bars are not aligned")
+    res = BarResolution(high=last.high, low=last.low)
+    sign = levels.sign
+    adverse = []
+    for price, reason in _adverse_levels(levels):
+        trigger = policy.liquidation_trigger if reason == REASON_LIQUIDATION else policy.stop_trigger
+        source = mark if trigger == "mark" else last
+        opened_through = open_is_observed and _adverse_reached_at(source.open, price, sign)
+        extreme = source.low if sign > 0 else source.high
+        if opened_through or _adverse_reached_at(extreme, price, sign):
+            adverse.append((price, reason, trigger, opened_through))
+
+    open_adverse = [candidate for candidate in adverse if candidate[3]]
+    if open_adverse:
+        chosen = min(open_adverse, key=lambda x: (sign * x[0], x[1] != REASON_LIQUIDATION))
+    elif adverse:
+        # Within one feed, a continuous move crosses the nearest level first.
+        # Across feeds, OHLC cannot determine the order of their extremes.
+        independent = len({candidate[2] for candidate in adverse}) > 1
+        res.ambiguous = independent
+        if independent and policy.same_bar == SameBarPolicy.RAISE:
+            raise AmbiguousBarError(f"bar {last.ts_ms} has adverse triggers on both Last and Mark")
+        if independent and policy.same_bar == SameBarPolicy.ADVERSE:
+            chosen = min(adverse, key=lambda x: (sign * x[0], x[1] != REASON_LIQUIDATION))
+        else:
+            chosen = max(adverse, key=lambda x: sign * x[0])
+    else:
+        chosen = None
+
+    targets = _sorted_targets(levels)
+    at_open = [leg for leg in targets if open_is_observed and _favourable_reached_at(last.open, leg.price, sign)]
+    target_extreme = last.high if sign > 0 else last.low
+    inside = [leg for leg in targets if leg not in at_open and _favourable_reached_at(target_extreme, leg.price, sign)]
+    if chosen and not chosen[3] and at_open:
+        _fill_targets(res, at_open, levels, last, policy, gapped=True)
+        if res.terminal:
+            return res
+    if chosen and (inside if not chosen[3] else at_open):
+        res.ambiguous = True
+        if policy.same_bar == SameBarPolicy.RAISE:
+            raise AmbiguousBarError(f"bar {last.ts_ms} contains both a protective trigger and a Last target")
+        if policy.same_bar == SameBarPolicy.FAVOURABLE:
+            chosen = None
+
+    if chosen:
+        price, reason, trigger, at_boundary = chosen
+        market = reason == REASON_LIQUIDATION or policy.stop_is_stop_market
+        if trigger == "mark" and market:
+            # The open is simultaneous across feeds. An interior Mark trigger gives no
+            # synchronized Last quote, so take the adverse bound of the Last sub-bar.
+            price = last.open if at_boundary else (last.low if sign > 0 else last.high)
+            res.ambiguous |= not at_boundary
+        elif at_boundary and market:
+            price = last.open
+        slip = policy.market_exit_slippage if market else 0.0
+        fill = _fill_price(price, sign, slip, policy.tick_size)
+        res.events.append(ExitEvent(reason, fill, last.ts_ms, 1.0, gapped=at_boundary))
+        res.terminal = True
+        return res
+
+    if at_open and not res.events:
+        _fill_targets(res, at_open, levels, last, policy, gapped=True)
+    if not res.terminal and inside:
+        remaining = replace(levels, targets=tuple(leg for leg in targets if leg not in at_open))
+        _fill_targets(res, inside, remaining, last, policy, gapped=False)
+    return res
+
+
 def _fill_targets(
     res: BarResolution,
     hits: Iterable[TargetLevel],
@@ -297,14 +377,20 @@ def _resolve_with_touch(
     levels: ProtectiveLevels,
     touch_bars: Sequence[Bar],
     policy: ExitPolicy,
+    mark_bars: Sequence[Bar] | None = None,
+    first_open_is_observed: bool = True,
 ) -> BarResolution:
     """Replay a decision bar's lower-timeframe path through the same resolver."""
     aggregate = BarResolution(resolved_by_touch=True)
     current = levels
-    for sub in touch_bars:
+    if mark_bars is not None and len(mark_bars) != len(touch_bars):
+        raise ValueError("Last and Mark paths have different lengths")
+    for index, sub in enumerate(touch_bars):
         aggregate.high = max(aggregate.high, sub.high)
         aggregate.low = min(aggregate.low, sub.low)
-        step = resolve_bar(current, sub, policy=policy)
+        mark = mark_bars[index] if mark_bars is not None else None
+        step = resolve_bar(current, sub, policy=policy, mark_bar=mark,
+                           first_open_is_observed=first_open_is_observed or index > 0)
         aggregate.ambiguous = aggregate.ambiguous or step.ambiguous
         for event in step.events:
             aggregate.events.append(event)

@@ -399,8 +399,8 @@ class MarginConfig:
     # A stop that sits beyond the liquidation price is not a stop. Reject the order
     # rather than pretending the protective level exists.
     require_stop_inside_liquidation: bool = True
-    # Liquidation triggers on Mark price at the venue. When no mark series is supplied
-    # the engine falls back to Last and downgrades the liquidation status.
+    # Liquidation triggers on Mark at the venue. Aligned Mark execution requires
+    # isolated margin. Without Mark, the engine falls back to Last and downgrades status.
     liquidation_trigger: str = "mark"
 
 
@@ -517,6 +517,9 @@ class SimConfig:
     decision_timeframe: str = "UNSPECIFIED"
     touch_timeframe: str | None = None
     annualisation_days: float = 365.0
+    # Last is the legacy stop source. Mark requires an aligned independent path
+    # and a market exit. Take-profit and entry fills still use Last.
+    stop_trigger: str = "last"
 
 
 # --------------------------------------------------------------------------------------
