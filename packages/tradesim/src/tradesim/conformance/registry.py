@@ -313,6 +313,14 @@ REGISTRY: tuple[ConformanceItem, ...] = (
         fixture=False,
         note="tradesim 1.2.1 (SimConfig.fill_subbar_conservative, default True). Bound by tests/test_exec_022_fill_subbar.py.",
     ),
+    _item(
+        "EXEC-023",
+        "MARK/LAST CHRONOLOGY: an enabled Mark stop or liquidation resolves from the aligned Mark path and fills on Last. No pre-entry trigger; record the actual resolved sub-bar and never accrue later funding.",
+        "10 / 11.3 / 13.3",
+        frozenset({CONTRACT_BRACKET_BACKTEST, CONTRACT_BRACKET_PORTFOLIO}),
+        fixture=False,
+        note="tradesim 1.3.0. Interior Mark triggers use the adverse Last bound and identify unresolved same-sub-bar ordering.",
+    ),
     # ---------------------------------------------------------------- FUND -----------
     _item(
         "FUND-001",
