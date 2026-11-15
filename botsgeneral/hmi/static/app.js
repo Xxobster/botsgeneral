@@ -7,6 +7,17 @@ function fmtNum(x, d = 2) {
   const n = Number(x);
   return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 }
+// PF label that stays honest on tiny samples: infinity with few closed trades means "no loss yet".
+const PF_MIN_TRADES = 5;
+function fmtPf(pf, n, d = 2) {
+  const base = fmtNum(pf, d);
+  if (pf === "inf" && Number(n) < PF_MIN_TRADES) return `${base} (n=${n ?? 0})`;
+  return base;
+}
+function pfClass(pf, n) {
+  if (pf === "inf" && Number(n) < PF_MIN_TRADES) return "";
+  return gateClass(pf, 1);
+}
 function fmtPct01(x) {
   if (x == null || Number.isNaN(Number(x))) return "—";
   return (100 * Number(x)).toFixed(1) + "%";
@@ -122,7 +133,7 @@ function renderTotals(t) {
 
 function metricLine(m) {
   m = m || {};
-  return `n=${m.n_trades ?? 0} · PnL ${fmtNum(m.realized_pnl, 2)} · WR ${fmtPct01(m.winrate)} · PF ${fmtNum(m.profit_factor, 2)} · RF ${fmtNum(m.recovery_factor, 2)}`;
+  return `n=${m.n_trades ?? 0} · PnL ${fmtNum(m.realized_pnl, 2)} · WR ${fmtPct01(m.winrate)} · PF ${fmtPf(m.profit_factor, m.n_trades)} · RF ${fmtNum(m.recovery_factor, 2)}`;
 }
 
 function cardHtml(a) {
@@ -145,7 +156,7 @@ function cardHtml(a) {
       <div><span>Open unrealized</span><br/><b class="${signedClass(a.total_perp_upl)}">${fmtNum(a.total_perp_upl, 2)}</b></div>
       <div><span>Realized Profit and Loss (PnL)</span><br/><b class="${signedClass(m.realized_pnl)}">${fmtNum(m.realized_pnl, 2)}</b></div>
       <div><span>Win rate (WR)</span><br/><b>${fmtPct01(m.winrate)}</b></div>
-      <div><span>Profit factor (PF)</span><br/><b class="${gateClass(m.profit_factor, 1)}">${fmtNum(m.profit_factor, 2)}</b></div>
+      <div><span>Profit factor (PF)</span><br/><b class="${pfClass(m.profit_factor, m.n_trades)}">${fmtPf(m.profit_factor, m.n_trades)}</b></div>
       <div><span>Recovery factor (RF)</span><br/><b class="${gateClass(m.recovery_factor, 1)}">${fmtNum(m.recovery_factor, 2)}</b></div>
     </div>
   </button>`;
@@ -308,7 +319,7 @@ function renderWinners() {
       <td>${fmtNum(r.trades_per_day, 2)}</td>
       <td class="${signedClass(r.realized_pnl)}">${fmtNum(r.realized_pnl, 2)}</td>
       <td>${fmtPct01(r.winrate)}</td>
-      <td class="${gateClass(r.profit_factor, 1)}">${fmtNum(r.profit_factor, 2)}</td>
+      <td class="${pfClass(r.profit_factor, r.n_trades)}" title="${r.profit_factor === "inf" ? "No closed losing trade yet" : ""}">${fmtPf(r.profit_factor, r.n_trades)}</td>
       <td class="${gateClass(r.recovery_factor, 1)}">${fmtNum(r.recovery_factor, 2)}</td>
       <td>${fmtNum(r.max_drawdown, 2)}</td>
       <td>${fmtNum(r.payoff, 2)}</td>
@@ -437,7 +448,7 @@ function openDetail(name) {
     <p><b class="${signedClass(m.realized_pnl)}">${metricLine(m)}</b>
       · Max drawdown ${fmtNum(m.max_drawdown, 2)} (${fmtPct01(m.max_dd_pct)})
       · Payoff ${fmtNum(m.payoff, 2)}
-      · PF <span class="${gateClass(m.profit_factor, 1)}">${fmtNum(m.profit_factor, 2)}</span>
+      · PF <span class="${pfClass(m.profit_factor, m.n_trades)}">${fmtPf(m.profit_factor, m.n_trades)}</span>
       · RF <span class="${gateClass(m.recovery_factor, 1)}">${fmtNum(m.recovery_factor, 2)}</span></p>
     <h3>Strategy</h3>
     ${strategies}
@@ -469,7 +480,7 @@ function openDetail(name) {
           <td>${c.n_trades}</td>
           <td class="${signedClass(c.realized_pnl)}">${fmtNum(c.realized_pnl, 2)}</td>
           <td>${fmtPct01(c.winrate)}</td>
-          <td class="${gateClass(c.profit_factor, 1)}">${fmtNum(c.profit_factor, 2)}</td>
+          <td class="${pfClass(c.profit_factor, c.n_trades)}">${fmtPf(c.profit_factor, c.n_trades)}</td>
           <td class="${gateClass(c.recovery_factor, 1)}">${fmtNum(c.recovery_factor, 2)}</td>
           <td>${c.since || ""}</td>
           <td>${fmtNum(c.days_active, 1)}</td>

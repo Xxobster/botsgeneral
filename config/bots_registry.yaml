@@ -290,7 +290,7 @@ bots:
   llm2_emashort_sol_1h:
     serve_candles: true
     exchange: binance
-    account: Xxobster12
+    account: Xxobster5
     symbols: [SOLUSDT]
     timeframe: 1h
     min_history_bars: 3000
@@ -302,7 +302,7 @@ bots:
     systemd_match: ["llm2-emashort-sol-1h"]
     start_date: "2026-10-25"
     authorized_from_utc: "2026-10-25T08:00:00Z"
-    notes: "SOLUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-2%, Xxobster12 (hedge); RESEARCH_ONLY"
+    notes: "SOLUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-6% (Micah 2026-11-15), Xxobster5 since 2026-11-13 09:28Z (was Xxobster12 until then; hedge); RESEARCH_ONLY"
 
   llm2_emashort_xrp_1h:
     serve_candles: true
