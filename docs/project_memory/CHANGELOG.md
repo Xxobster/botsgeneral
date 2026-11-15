@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-15 — tradesim 1.4.0: opt-in working-order replay (EXEC-024, EXEC-025)
+
+- New, never used by `simulate` / `run_backtest`: `tradesim.working_orders`, `tradesim.working_replay`,
+  `tradesim.research.working_replay_store`. A posted passive order, a partially executed order and a
+  protected position are separate events; each qualified fill moves exactly its quantity into one position
+  and is deduplicated; expiry or confirmed cancel releases only the remainder; no protection or take-profit
+  before the first fill; gaps and unorderable ties end as an explicit indeterminate result (with a reason).
+- Engine: `_book_entry_fill`, `_book_funding`, `_apply_reserved_entry_fill`, `_resolve_reserved_position_point`
+  extracted/added; `_close` can take an executable exit reference. Standard path unchanged: identical
+  trade/fill/funding hashes before and after on the LLM2 synthetic fingerprint (6 seeds x 2 configs).
+- Conformance: 67/67 identifiers (was 65/65). Origin: patch `tradesim_sol_working_replay_2026-11-14.patch`
+  sha256 `eee1bddff20093aa2acaa6ed09d9b456b030cf8503fb54cbaffdf8ea10ad31b4` on base `73a61b6`, reviewed and extended.
+- NOT modelled (adapter must label): queue/capacity, partial take-profits, protection latency, concurrent events.
+
 ## 2026-10-05 — Winners table: avg PnL per trade + current equity
 
 - **Avg PnL** on Best winners is mean realized profit and loss per closed
