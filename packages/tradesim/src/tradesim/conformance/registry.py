@@ -321,6 +321,22 @@ REGISTRY: tuple[ConformanceItem, ...] = (
         fixture=False,
         note="tradesim 1.3.0. Interior Mark triggers use the adverse Last bound and identify unresolved same-sub-bar ordering.",
     ),
+    _item(
+        "EXEC-024",
+        "WORKING ORDER LIFECYCLE (opt-in event replay): a posted passive order, a partially executed order and a protected position are three distinct events. Admission needs a causal quote and a non-crossing Post-Only limit on the instrument grid and reserves margin, fee and risk; each qualified fill moves exactly its quantity into one position and is deduplicated by fill identity; expiry or confirmed cancellation releases only the remainder; no protection or take-profit acts before the first fill; an unknown remainder or exposed gap is indeterminate and never produces a fictitious exit.",
+        "10 / 11.3 / 13.3",
+        frozenset({CONTRACT_BRACKET_BACKTEST, CONTRACT_BRACKET_PORTFOLIO}),
+        fixture=False,
+        note="tradesim 1.4.0 (tradesim.working_orders / working_replay, never used by run_backtest). Bound by tests/test_working_orders.py, test_working_replay.py and test_exec_024_025_working_replay.py. Queue capacity, partial take-profits and protection latency are NOT modelled and must be labelled by the adapter.",
+    ),
+    _item(
+        "EXEC-025",
+        "WORKING REPLAY CHRONOLOGY: funding is charged on the quantity open at settlement; an equal-clock tie between funding and a fill or exit, a fill and the order expiry, or a price event and the holding deadline is resolved by a documented rule (expiry first, deadline event mandatory) or raises as unorderable, which the adapter records as an indeterminate result with its reason; the all-taker stress changes billing only and keeps the passive fill chronology.",
+        "10 / 11.3 / 13.3",
+        frozenset({CONTRACT_BRACKET_BACKTEST, CONTRACT_BRACKET_PORTFOLIO}),
+        fixture=False,
+        note="tradesim 1.4.0. Same binding files as EXEC-024.",
+    ),
     # ---------------------------------------------------------------- FUND -----------
     _item(
         "FUND-001",

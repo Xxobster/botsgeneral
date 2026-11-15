@@ -74,6 +74,7 @@ from .exits import (
     update_protective_levels,
 )
 from .fees import (
+    PricedFill,
     apply_entry_slippage,
     first_limit_touch_ts_ms,
     limit_entry_touched,
@@ -90,6 +91,7 @@ from .funding import (
 from .margin import MarginError, build_margin_state, stop_is_inside_liquidation, worst_status
 from .sizing import desired_qty, normalise_order, split_legs
 from .version import ENGINE_NAME, ENGINE_VERSION
+from .working_orders import WorkingTransition
 
 
 class InfeasibleOrderError(RuntimeError):
@@ -823,23 +825,8 @@ class _Engine:
             costs=self.costs,
             liquidity=entry_liquidity,
         )
-        self.cash -= priced.fee
-        self.fills.append(
-            Fill(
-                ts_ms=funding_from if rt.use_mark_triggers else bar.ts_ms,
-                symbol=signal.symbol,
-                role=FeeRole.ENTRY.value,
-                side="buy" if int(signal.side) > 0 else "sell",
-                qty=qty,
-                price=fill_price,
-                notional=priced.notional,
-                liquidity=priced.liquidity,
-                fee_rate=priced.fee_rate,
-                fee=priced.fee,
-                slippage_cost=priced.slippage_cost,
-                trade_id=trade_id,
-            )
-        )
+        entry_ts = funding_from if rt.use_mark_triggers else bar.ts_ms
+        self._book_entry_fill(trade_id, signal.symbol, signal.side, entry_ts, priced)
         self.liq_statuses.append(state.status)
 
         levels = ProtectiveLevels(
@@ -858,7 +845,7 @@ class _Engine:
             original_qty=qty,
             entry_price=fill_price,
             entry_ref_price=ref,
-            entry_ts_ms=funding_from if rt.use_mark_triggers else bar.ts_ms,
+            entry_ts_ms=entry_ts,
             entry_bar_index=i,
             funding_from_ms=funding_from,
             limit_fill=(entry_order == EntryOrder.LIMIT),
@@ -886,6 +873,98 @@ class _Engine:
             ),
             meta=dict(signal.meta) if signal.meta else {},
         )
+
+    def _book_entry_fill(self, trade_id: int, symbol: str, side: Side, ts_ms: int, priced: PricedFill) -> None:
+        """Charge and journal an executed entry slice, without rescheduling or sizing it."""
+        self.cash -= priced.fee
+        self.fills.append(Fill(
+            ts_ms=ts_ms,
+            symbol=symbol,
+            role=FeeRole.ENTRY.value,
+            side="buy" if side == Side.LONG else "sell",
+            qty=priced.qty,
+            price=priced.price,
+            notional=priced.notional,
+            liquidity=priced.liquidity,
+            fee_rate=priced.fee_rate,
+            fee=priced.fee,
+            slippage_cost=priced.slippage_cost,
+            trade_id=trade_id,
+        ))
+
+    def _apply_reserved_entry_fill(
+        self, rt: _SymbolRuntime, transition: WorkingTransition, *,
+        target_price: float, entry_bar_index: int, max_hold_bars: int,
+    ) -> _Position | None:
+        """Attach one qualified passive slice to the canonical isolated position ledger."""
+        if transition.status == "DUPLICATE_FILL":
+            return None
+        order, priced = transition.order, transition.fill
+        if order is None or priced is None or transition.status not in {"FILLED", "PARTIAL_FILL"}:
+            raise ValueError("Expected an accepted passive entry slice")
+        if (self.margin.mode != MarginMode.ISOLATED or not rt.use_mark_triggers or self._is_hedge_mode()
+                or self.sim.stop_trigger != "mark" or self.margin.liquidation_trigger != "mark"
+                or self.sim.allow_concurrent_positions or len(rt.positions) > 1):
+            raise ValueError("Working order entry needs one-way isolated Mark execution")
+        side = Side.coerce(order.intent.side)
+        spec = rt.stream.instrument
+        if not (np.isfinite(target_price) and target_price > 0 and int(side) * (target_price - order.limit_price) > 0
+                and abs(round_to_tick(target_price, spec.tick_size) - target_price) < 1e-10
+                and self.sim.take_profit_is_limit and type(max_hold_bars) is int and max_hold_bars > 0):
+            raise ValueError("Expected one valid resting take-profit and a finite holding window")
+        if (not 0 <= entry_bar_index < len(rt.stream.bars)
+                or not rt.stream.bars.ts_ms[entry_bar_index] <= transition.ts_ms < rt.stream.bars.end_ts_ms[entry_bar_index]):
+            raise ValueError("Entry slice does not belong to the given bar")
+        pos = rt.positions[0] if rt.positions else None
+        if pos is not None and (pos.meta.get("working_order_id") != transition.order_id
+                                or pos.target_price != target_price or pos.max_hold_bars != max_hold_bars
+                                or pos.qty != pos.original_qty):
+            raise ValueError("Entry slice does not belong to the open position")
+        filled_qty = order.qty - order.remaining_qty
+        if not np.isclose(filled_qty, priced.qty + (pos.original_qty if pos else 0.0), rtol=0, atol=1e-10):
+            raise ValueError("Entry slice position quantity does not reconcile")
+        target = TargetLevel("tp", float(target_price), 1.0)
+        allocated_margin = transition.margin_to_position + (pos.initial_margin if pos else 0.0)
+        state = build_margin_state(
+            side=side, entry_price=order.limit_price, qty=filled_qty, stop_price=order.stop_price,
+            spec=spec, cfg=replace(self.margin, leverage=order.leverage),
+            close_fee_rate=self.costs.rate_for(FeeRole.LIQUIDATION), wallet_available=0.0,
+            has_mark_series=self.margin.liquidation_trigger == "mark",
+        )
+        if not np.isclose(state.initial_margin, allocated_margin, rtol=0, atol=1e-9):
+            raise ValueError("Reserved and booked initial margins disagree")
+        if not stop_is_inside_liquidation(side, order.stop_price, state.liquidation_price):
+            raise ValueError("Booked exposure cannot be protected by its frozen stop")
+        levels = ProtectiveLevels(side=side, entry_price=order.limit_price, stop=order.stop_price,
+                                  stop_reason=REASON_STOP, liquidation=state.liquidation_price, targets=(target,))
+        if pos is None:
+            pos = _Position(
+                trade_id=self._next_trade_id, symbol=spec.symbol, side=side, qty=filled_qty,
+                original_qty=filled_qty, entry_price=order.limit_price,
+                entry_ref_price=order.intent.bid if side == Side.SHORT else order.intent.ask,
+                entry_ts_ms=transition.ts_ms, entry_bar_index=entry_bar_index, funding_from_ms=transition.ts_ms,
+                levels=levels, stop_price=order.stop_price, target_price=target_price,
+                liquidation_price=state.liquidation_price, leverage=order.leverage, initial_margin=allocated_margin,
+                maintenance_rate=state.maintenance_rate, maintenance_deduction=state.maintenance_deduction,
+                liq_status=state.status, max_hold_bars=max_hold_bars, limit_fill=True,
+                planned_tp=((target.label, target.price, target.qty_fraction),),
+                meta={"working_order_id": transition.order_id},
+            )
+            self._next_trade_id += 1
+            rt.positions.append(pos)
+        else:
+            pos.original_qty = filled_qty
+            pos.qty = filled_qty
+            pos.initial_margin = allocated_margin
+            pos.liquidation_price = state.liquidation_price
+            pos.maintenance_rate = state.maintenance_rate
+            pos.maintenance_deduction = state.maintenance_deduction
+            pos.liq_status = state.status
+            pos.levels = levels
+        pos.fees += priced.fee
+        self._book_entry_fill(pos.trade_id, pos.symbol, side, transition.ts_ms, priced)
+        self.liq_statuses.append(state.status)
+        return pos
 
     def _resolve_level(
         self,
@@ -981,6 +1060,39 @@ class _Engine:
             role = _ROLE_FOR_REASON[event.reason]
             self._close(rt, pos, event.price, event.reason, bar, i, role, label=event.label)
             return
+
+    def _resolve_reserved_position_point(
+        self, rt: _SymbolRuntime, pos: _Position, *, ts_ms: int, mark: float, last: float,
+        executable_exit: float, target_qualified: bool, bar_index: int, hold_expired: bool = False,
+    ) -> None:
+        """Resolve a causal Mark/Last point for a booked single-target position.
+
+        The event driver supplies the time-bound executable bid/ask side and a
+        separate target eligibility decision. A favorable trade print alone is
+        not a resting take-profit fill.
+        """
+        if (not pos.meta.get("working_order_id") or pos not in rt.positions or ts_ms < pos.entry_ts_ms
+                or not all(np.isfinite(v) and v > 0 for v in (mark, last, executable_exit))):
+            raise ValueError("Expected a causal priced event for an open reserved position")
+        tf = 1
+        last_point = Bar(ts_ms, last, last, last, last, tf)
+        mark_point = Bar(ts_ms, mark, mark, mark, mark, tf)
+        brackets = pos.levels if target_qualified and ts_ms > pos.entry_ts_ms else replace(pos.levels, targets=())
+        policy = replace(self.policy, tick_size=rt.stream.instrument.tick_size, market_exit_slippage=0.0)
+        resolution = resolve_bar(brackets, last_point, policy=policy, mark_bar=mark_point)
+        self._track_excursion(pos, last_point)
+        pos.ambiguous = pos.ambiguous or resolution.ambiguous
+        if resolution.events and (not hold_expired or resolution.events[0].reason in _ADVERSE_REASONS):
+            event = resolution.events[0]
+            reason = event.reason
+            price = event.price if reason == REASON_TARGET else self._market_exit_price(pos, executable_exit, rt.stream.instrument)
+            self._close(rt, pos, price, reason, last_point, bar_index, _ROLE_FOR_REASON[reason],
+                        label=event.label, event_ts_ms=ts_ms,
+                        exit_ref_price=None if reason == REASON_TARGET else executable_exit)
+        elif hold_expired:
+            price = self._market_exit_price(pos, executable_exit, rt.stream.instrument)
+            self._close(rt, pos, price, REASON_MAX_HOLD, last_point, bar_index, FeeRole.TIMEOUT,
+                        event_ts_ms=ts_ms, exit_ref_price=executable_exit)
 
     def _resolve_mark_position(
         self, rt: _SymbolRuntime, pos: _Position, bar: Bar, i: int, policy: ExitPolicy,
@@ -1213,6 +1325,7 @@ class _Engine:
         *,
         label: str = "",
         event_ts_ms: int | None = None,
+        exit_ref_price: float | None = None,
     ) -> None:
         if event_ts_ms is None and self.sim.funding_exit_boundary == "bar_start" and pos.funding_charged_this_bar:
             # Reverse this bar's settlements: the caller asked for the exact half-open
@@ -1228,12 +1341,13 @@ class _Engine:
 
         qty = pos.qty
         priced = price_fill(
-            role=role, qty=qty, price=price, ref_price=price, costs=self.costs
+            role=role, qty=qty, price=price, ref_price=price if exit_ref_price is None else exit_ref_price, costs=self.costs
         )
         gross = int(pos.side) * (price - pos.entry_price) * qty
         self.cash += gross - priced.fee
         pos.gross_pnl += gross
         pos.fees += priced.fee
+        pos.slippage_cost += priced.slippage_cost
         pos.exit_notional += qty * price
 
         entry_bar_exit = i == pos.entry_bar_index
@@ -1252,7 +1366,7 @@ class _Engine:
                 liquidity=priced.liquidity,
                 fee_rate=priced.fee_rate,
                 fee=priced.fee,
-                slippage_cost=0.0,
+                slippage_cost=priced.slippage_cost,
                 trade_id=pos.trade_id,
                 reason=full_reason,
             )
@@ -1351,25 +1465,18 @@ class _Engine:
             )
             if not exact:
                 rt.approximated_funding_marks += 1
-            flow = funding_cashflow(
-                side=int(pos.side), qty=pos.qty, mark_price=mark, rate=float(rate)
-            )
-            self.cash += flow
-            pos.funding += flow
-            pos.funding_charged_this_bar += flow
-            self.funding_charges.append(
-                FundingCharge(
-                    ts_ms=int(ts),
-                    symbol=pos.symbol,
-                    rate=float(rate),
-                    mark_price=mark,
-                    qty=pos.qty,
-                    side=int(pos.side),
-                    notional=abs(pos.qty * mark),
-                    cashflow=flow,
-                    trade_id=pos.trade_id,
-                )
-            )
+            self._book_funding(pos, int(ts), float(rate), mark)
+
+    def _book_funding(self, pos: _Position, ts_ms: int, rate: float, mark: float) -> None:
+        """Book one settlement against quantity exposed at this event."""
+        flow = funding_cashflow(side=int(pos.side), qty=pos.qty, mark_price=mark, rate=rate)
+        self.cash += flow
+        pos.funding += flow
+        pos.funding_charged_this_bar += flow
+        self.funding_charges.append(FundingCharge(
+            ts_ms=ts_ms, symbol=pos.symbol, rate=rate, mark_price=mark, qty=pos.qty,
+            side=int(pos.side), notional=abs(pos.qty * mark), cashflow=flow, trade_id=pos.trade_id,
+        ))
 
     def _reprice_cross_liquidation(self, rt: _SymbolRuntime, pos: _Position) -> None:
         from .margin import liquidation_price
