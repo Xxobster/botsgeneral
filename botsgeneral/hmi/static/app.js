@@ -55,6 +55,13 @@ function posDir(side) {
   return side || "—";
 }
 
+function riskCell(pct, band) {
+  const v = fmtPctVal(pct);
+  if (!band) return v;
+  const label = band === "1-1" ? "1 % fixe" : `bande ${band} %`;
+  return `${v} <small title="bande de risque du bot">(${label})</small>`;
+}
+
 function riskPctOf(row) {
   if (row.display_risk_pct != null) return row.display_risk_pct;
   if (row.actual_risk_pct != null) return row.actual_risk_pct;
@@ -346,6 +353,7 @@ function renderActiveTrades() {
         lev: p.leverage,
         confidence_pct: p.confidence_pct,
         display_risk_pct: riskPctOf(p),
+        risk_band_pct: p.risk_band_pct,
         nearer: p.closer_exit
           ? `${p.closer_exit} ${fmtNum(p.closer_pct, 2)}%`
           : "—",
@@ -369,7 +377,7 @@ function renderActiveTrades() {
       <td>${r.mark}</td>
       <td class="${signedClass(r.upl)}">${fmtNum(r.upl, 4)}</td>
       <td>${fmtPctVal(r.confidence_pct)}</td>
-      <td>${fmtPctVal(r.display_risk_pct)}</td>
+      <td>${riskCell(r.display_risk_pct, r.risk_band_pct)}</td>
       <td>${r.lev ?? "—"}</td>
       <td class="l">${r.nearer}</td>
     </tr>`).join("");
@@ -391,6 +399,7 @@ function renderRecentTrades() {
         pnl: t.pnl,
         confidence_pct: t.confidence_pct,
         display_risk_pct: riskPctOf(t),
+        risk_band_pct: t.risk_band_pct,
       });
     });
   });
@@ -413,7 +422,7 @@ function renderRecentTrades() {
       <td>${t.exit}</td>
       <td class="${signedClass(t.pnl)}">${fmtNum(t.pnl, 4)}</td>
       <td>${fmtPctVal(t.confidence_pct)}</td>
-      <td>${fmtPctVal(t.display_risk_pct)}</td>
+      <td>${riskCell(t.display_risk_pct, t.risk_band_pct)}</td>
     </tr>`).join("");
 }
 
