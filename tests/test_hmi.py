@@ -447,3 +447,21 @@ def test_strategy_catalog_has_live_units():
     assert rows[0]["bot"] == "llm2_hilbert_sol_1h"
     assert "Hilbert" in (rows[0]["title"] + rows[0]["summary"])
     assert rows[1]["family"] == "tsm_vpa"
+
+
+def test_pair_winners_inf_pf_on_few_trades_does_not_outrank_real_rows():
+    """2026-11-15: Xxobster5 SOL showed PF infinity after one winning trade (the second trade was open)."""
+    def snap(rows):
+        return [{"ok": True, "_ok": True, "alias": "ln1", "vps": "94.156.189.76", "accounts": [{
+            "account": "XxobsterT", "bot_ids": ["b"], "bots": ["b"],
+            "bot_symbols": {"b": [r["symbol"] for r in rows]}, "days_active": 5, "total_equity": 1.0,
+            "per_coin": rows}]}]
+
+    rows = pair_winners_from_snaps(snap([
+        {"symbol": "SOLUSDT", "n_trades": 1, "realized_pnl": 1.7, "profit_factor": "inf", "winrate": 1.0},
+        {"symbol": "BTCUSDT", "n_trades": 10, "realized_pnl": 2.0, "profit_factor": 1.2, "winrate": 0.5},
+        {"symbol": "ETHUSDT", "n_trades": 8, "realized_pnl": 3.0, "profit_factor": "inf", "winrate": 1.0},
+        {"symbol": "XRPUSDT", "n_trades": 0, "realized_pnl": 0.0, "profit_factor": None},
+    ]))
+    # inf with >= 5 trades still leads; inf with 1 trade is ranked after every finite PF.
+    assert [r["pair"] for r in rows] == ["ETHUSDT", "BTCUSDT", "SOLUSDT"]

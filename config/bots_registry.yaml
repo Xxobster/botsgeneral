@@ -15,7 +15,7 @@ vps:
     # Per-unit pivot paths (not the stale /home/llm2 catch-all).
     # xgb / Xxobster2 removed 2026-08-25; xgb_match removed 2026-09-06; tsm_vpa (Xxobster5) stopped 2026-10-22.
     # hilbert stopped 2026-11-03 (Xxobster3 kept for a future bot); EMA short pilot (Xxobster12) added 2026-10-25.
-    bots: [llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, tsm_chandelier, llm2_ema_sol_1h, llm2_emashort_avax_1h, llm2_emashort_sol_1h, llm2_emashort_xrp_1h]
+    bots: [llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, tsm_chandelier, llm2_ema_sol_1h, llm2_emashort_avax_1h, llm2_emashort_sol_1h, llm2_emashort_xrp_1h, llm2_emashort_sol_x3_1h]
   "212.73.150.178":
     # divergences / crypthor2(mp_oos) / karmaa_mp / news removed 2026-09-06; quad / fvg stopped 2026-09-09;
     # 11 EMA min-size probes (Xxobster11) added 2026-10-07.
@@ -290,7 +290,7 @@ bots:
   llm2_emashort_sol_1h:
     serve_candles: true
     exchange: binance
-    account: Xxobster12
+    account: Xxobster5
     symbols: [SOLUSDT]
     timeframe: 1h
     min_history_bars: 3000
@@ -302,7 +302,7 @@ bots:
     systemd_match: ["llm2-emashort-sol-1h"]
     start_date: "2026-10-25"
     authorized_from_utc: "2026-10-25T08:00:00Z"
-    notes: "SOLUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-2%, Xxobster12 (hedge); RESEARCH_ONLY"
+    notes: "SOLUSDT 1h power_ema_stack_SHORT mirror pilot, 6-bar window, risk 1-6% (Micah 2026-11-15), Xxobster5 since 2026-11-13 09:28Z (was Xxobster12 until then; hedge); RESEARCH_ONLY"
 
   llm2_emashort_xrp_1h:
     serve_candles: true
@@ -621,7 +621,7 @@ bots:
   llm2_ema_xlm_1h:
     serve_candles: true
     exchange: binance
-    account: Xxobster11
+    account: Xxobster3
     symbols:
     - XLMUSDT
     timeframe: 1h
@@ -640,4 +640,27 @@ bots:
     - llm2-ema-xlm-1h
     start_date: '2026-10-08'
     authorized_from_utc: '2026-10-08T00:00:00Z'
-    notes: XLMUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+    notes: XLMUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster3 (moved from Xxobster11 2026-11-11); RESEARCH_ONLY
+  llm2_emashort_sol_x3_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster3
+    symbols:
+    - SOLUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-emashort-sol-x3-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-emashort-sol-x3-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-emashort-sol-x3-1h
+    start_date: '2026-11-16'
+    authorized_from_utc: null   # set at launch
+    notes: SOLUSDT 1h power_ema_stack_SHORT, 6-bar window, risk 1-6%, Xxobster3 on ln1 (not yet launched, no alarm until authorized_from_utc is set); RESEARCH_ONLY

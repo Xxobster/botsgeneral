@@ -56,8 +56,15 @@ def visible_snaps(snaps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [s for s in snaps if not is_hidden_agent(s)]
 
 
+# An infinite profit factor means "no closed losing trade yet". With very few closed trades it carries
+# no information (2026-11-15: Xxobster5 SOL showed PF infinity after one winning trade while its second
+# trade was still open and losing), so it must not outrank statistically meaningful rows.
+PF_MIN_TRADES_FOR_INF_RANK = 5
+
+
 def _pf_sort_key(row: dict[str, Any]) -> tuple[int, float, int, float]:
-    """Best profit factor first; inf ranks above finite; missing last. Then more trades, then PnL."""
+    """Best profit factor first; inf (with enough trades) ranks above finite; inf on a handful of
+    trades ranks after finite values; missing last. Then more trades, then PnL."""
     pf = row.get("profit_factor")
     n = int(row.get("n_trades") or 0)
     try:
@@ -65,13 +72,15 @@ def _pf_sort_key(row: dict[str, Any]) -> tuple[int, float, int, float]:
     except (TypeError, ValueError):
         pnl = 0.0
     if pf in ("inf", float("inf")):
+        if n < PF_MIN_TRADES_FOR_INF_RANK:
+            return (2, 0.0, -n, -pnl)
         return (0, 0.0, -n, -pnl)
     try:
         v = float(pf)
     except (TypeError, ValueError):
-        return (2, 0.0, -n, -pnl)
+        return (3, 0.0, -n, -pnl)
     if v != v:  # NaN
-        return (2, 0.0, -n, -pnl)
+        return (3, 0.0, -n, -pnl)
     return (1, -v, -n, -pnl)
 
 
