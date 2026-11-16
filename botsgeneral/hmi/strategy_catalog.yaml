@@ -312,17 +312,17 @@ bots:
       on live-network-1 since 2026-11-13 (Xxobster12 before).
     local_path: D:/projects/LLM2/artifacts/live_packs/sol_1h_power_ema_stack_short_pilot
 
-  llm2_emashort_sol_min_probe_1h:
+  llm2_emashort_sol_x3_1h:
     family: llm2
-    title: Solana 1-hour EMA stack SHORT (minimum-lot execution check)
+    title: Solana 1-hour EMA stack SHORT (second account, risk 1-6%)
     timeframe: 1h
     symbols: [SOLUSDT]
     signal_venue: binance
     summary: >
-      sol_1h_power_ema_stack_short_min_probe_xxobster3, same signal as the Solana short pilot but
-      the venue minimum lot (min_size_probe + MIN_EXCHANGE), account Xxobster3 on live-network-2.
-      Execution check, not a performance test. Pending launch approval.
-    local_path: D:/projects/LLM2/artifacts/live_packs/sol_1h_power_ema_stack_short_min_probe_xxobster3
+      sol_1h_power_ema_stack_short_xxobster3, same signal as the Solana short pilot, Post-Only SELL,
+      6-bar window, 16-bar max hold, leverage 13x, confidence-mapped risk 1-6% of equity at the stop.
+      Account Xxobster3 on live-network-1. Not yet launched.
+    local_path: D:/projects/LLM2/artifacts/live_packs/sol_1h_power_ema_stack_short_xxobster3
 
   llm2_hilbert_sol_1h:
     family: llm2
