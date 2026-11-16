@@ -19,7 +19,7 @@ vps:
   "212.73.150.178":
     # divergences / crypthor2(mp_oos) / karmaa_mp / news removed 2026-09-06; quad / fvg stopped 2026-09-09;
     # 11 EMA min-size probes (Xxobster11) added 2026-10-07.
-    bots: [llm2, llm2_autonomy_376_sol, llm2_autonomy_705_eth, llm2_autonomy_013_sol, llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, llm2_pivot_eth_p50, llm2_pivot_sol_p50, llm2_ema_btc_1h, llm2_ema_eth_1h, llm2_ema_bnb_1h, llm2_ema_xrp_1h, llm2_ema_ada_1h, llm2_ema_doge_1h, llm2_ema_avax_1h, llm2_ema_link_1h, llm2_ema_dot_1h, llm2_ema_trx_1h, llm2_ema_xlm_1h]
+    bots: [llm2, llm2_autonomy_376_sol, llm2_autonomy_705_eth, llm2_autonomy_013_sol, llm2_pivot_sol_geo, llm2_pivot_eth_ctrl, llm2_pivot_eth_p50, llm2_pivot_sol_p50, llm2_ema_btc_1h, llm2_ema_eth_1h, llm2_ema_bnb_1h, llm2_ema_xrp_1h, llm2_ema_ada_1h, llm2_ema_doge_1h, llm2_ema_avax_1h, llm2_ema_link_1h, llm2_ema_dot_1h, llm2_ema_trx_1h, llm2_ema_xlm_1h, llm2_emashort_sol_min_probe_1h]
   "185.203.119.52":
     # llm2 catch-all removed 2026-09-06 (no live units left on this host).
     bots: []
@@ -621,7 +621,7 @@ bots:
   llm2_ema_xlm_1h:
     serve_candles: true
     exchange: binance
-    account: Xxobster11
+    account: Xxobster3
     symbols:
     - XLMUSDT
     timeframe: 1h
@@ -640,4 +640,27 @@ bots:
     - llm2-ema-xlm-1h
     start_date: '2026-10-08'
     authorized_from_utc: '2026-10-08T00:00:00Z'
-    notes: XLMUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster11; RESEARCH_ONLY
+    notes: XLMUSDT 1h power_ema_stack_long min-size probe, 6-bar window, Xxobster3 (moved from Xxobster11 2026-11-11); RESEARCH_ONLY
+  llm2_emashort_sol_min_probe_1h:
+    serve_candles: true
+    exchange: binance
+    account: Xxobster3
+    symbols:
+    - SOLUSDT
+    timeframe: 1h
+    min_history_bars: 3000
+    also_fetch_timeframes:
+    - 1m
+    min_history_bars_by_tf:
+      1h: 3000
+      1m: 500
+    path: /opt/llm2-emashort-sol-min-probe-1h
+    parser: none
+    process_match:
+    - --pack /opt/llm2-emashort-sol-min-probe-1h/pack
+    - ema_stack_runner
+    systemd_match:
+    - llm2-emashort-sol-min-probe-1h
+    start_date: '2026-11-16'
+    authorized_from_utc: null   # set when Micah approves the launch parameters
+    notes: SOLUSDT 1h power_ema_stack_SHORT at the venue minimum lot (min_size_probe), Xxobster3 on ln2; PENDING_PARAMS_REVIEW; RESEARCH_ONLY
