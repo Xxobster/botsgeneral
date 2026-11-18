@@ -13,9 +13,9 @@ is resolved only to a bar, the instant inside that bar at which it happened is u
 so ``exit_effective_ms`` defaults to the END of the bar that closed it. That is the
 adverse-cost reading of the ambiguity, and it is what makes a same-bar round trip pay the
 settlements inside its own bar (EXEC-015) instead of paying nothing because
-``entry_ms == exit_ms``. With touch bars the exit resolves to a sub-bar, so the window
-tightens automatically. Setting ``funding_exit_boundary="bar_start"`` selects the exact
-half-open ``[entry, exit)`` reading instead, which undercharges same-bar round trips.
+``entry_ms == exit_ms``. Aligned Mark/Last execution (EXEC-023) charges only through
+the resolved exit sub-bar, with an exclusive boundary at a confirmed open. Setting
+``funding_exit_boundary="bar_start"`` selects the sub-bar open for an interior exit.
 
 Mark price at a settlement. If a settlement lands exactly on a bar's open timestamp, that
 open IS the price at that instant and is used. Otherwise the containing bar's close is

@@ -237,6 +237,7 @@ class _SymbolRuntime:
     funding: FundingSchedule
     exec_index: dict[int, list[Signal]]
     touch_starts: np.ndarray
+    use_mark_triggers: bool
     positions: list[_Position] = field(default_factory=list)
     bar_cursor: int = 0
     approximated_funding_marks: int = 0
@@ -338,6 +339,10 @@ class _Engine:
         self.sim = sim
         self.run_id = run_id
         self.attach_stamp = attach_stamp
+        if sim.stop_trigger not in {"last", "mark"} or margin.liquidation_trigger not in {"last", "mark"}:
+            raise ValueError("stop and liquidation trigger sources must be 'last' or 'mark'")
+        if sim.stop_trigger == "mark" and not sim.stop_is_stop_market:
+            raise ValueError("Mark stop requires stop_is_stop_market=True")
 
         self.policy = ExitPolicy(
             same_bar=sim.same_bar_policy,
@@ -345,6 +350,8 @@ class _Engine:
             stop_is_stop_market=sim.stop_is_stop_market,
             market_exit_slippage=costs.effective_market_exit_slippage,
             tick_size=0.0,  # set per symbol
+            stop_trigger=sim.stop_trigger,
+            liquidation_trigger=margin.liquidation_trigger,
         )
 
         self.cash = float(sim.starting_equity)
@@ -365,6 +372,21 @@ class _Engine:
             validate_bars(stream.bars, what=f"{stream.symbol} bars")
             if stream.touch_bars is not None:
                 validate_bars(stream.touch_bars, what=f"{stream.symbol} touch bars")
+            if stream.mark_bars is not None:
+                validate_bars(stream.mark_bars, what=f"{stream.symbol} Mark bars")
+                if stream.mark_bars.symbol not in ("UNSPECIFIED", stream.symbol):
+                    raise DataValidationError(f"{stream.symbol}: Mark bars belong to another symbol")
+            if sim.stop_trigger == "mark" and stream.mark_bars is None:
+                raise DataValidationError(f"{stream.symbol}: Mark stop requires Mark bars")
+            use_mark = stream.mark_bars is not None and "mark" in {sim.stop_trigger, margin.liquidation_trigger}
+            if use_mark:
+                if margin.mode == MarginMode.CROSS:
+                    raise ValueError("aligned Mark execution currently requires isolated margin")
+                if not sim.fill_subbar_conservative:
+                    raise ValueError("aligned Mark execution requires conservative fill sub-bar policy")
+                last = stream.touch_bars if stream.touch_bars is not None else stream.bars
+                if last.timeframe_ms != stream.mark_bars.timeframe_ms:
+                    raise DataValidationError(f"{stream.symbol}: Last and Mark resolution timeframes differ")
             self.runtimes[stream.symbol] = _SymbolRuntime(
                 stream=stream,
                 funding=FundingSchedule.build(stream.funding_ts_ms, stream.funding_rate),
@@ -374,6 +396,7 @@ class _Engine:
                     if stream.touch_bars is not None
                     else np.empty(0, dtype=np.int64)
                 ),
+                use_mark_triggers=use_mark,
             )
 
     # -- scheduling ------------------------------------------------------------------
@@ -484,7 +507,8 @@ class _Engine:
         # 1. funding for positions already open at this bar's start
         for pos in rt.positions:
             pos.funding_charged_this_bar = 0.0
-            self._charge_funding(rt, pos, bar.ts_ms, bar.end_ts_ms, i)
+            if not rt.use_mark_triggers:
+                self._charge_funding(rt, pos, bar.ts_ms, bar.end_ts_ms)
 
         # 1b. cross margin re-prices the liquidation as the wallet moves
         if self.margin.mode == MarginMode.CROSS:
@@ -493,8 +517,9 @@ class _Engine:
 
         # 2. entries scheduled for this bar
         opened = self._fill_entries(rt, i, bar)
-        for pos in opened:
-            self._charge_funding(rt, pos, pos.funding_from_ms, bar.end_ts_ms, i)
+        if not rt.use_mark_triggers:
+            for pos in opened:
+                self._charge_funding(rt, pos, pos.funding_from_ms, bar.end_ts_ms)
 
         # 3. THE exit resolution. One call site, after the entries exist, applied
         #    identically to a position opened on this bar and one opened last month.
@@ -729,7 +754,7 @@ class _Engine:
                 cfg=self.margin,
                 close_fee_rate=self.costs.rate_for(FeeRole.LIQUIDATION),
                 wallet_available=self._available_margin(),
-                has_mark_series=rt.stream.mark_bars is not None,
+                has_mark_series=rt.use_mark_triggers and self.margin.liquidation_trigger == "mark",
             )
         except MarginError as exc:
             self._skip(signal, SkipReason.LEVERAGE_INFEASIBLE, str(exc))
@@ -801,7 +826,7 @@ class _Engine:
         self.cash -= priced.fee
         self.fills.append(
             Fill(
-                ts_ms=bar.ts_ms,
+                ts_ms=funding_from if rt.use_mark_triggers else bar.ts_ms,
                 symbol=signal.symbol,
                 role=FeeRole.ENTRY.value,
                 side="buy" if int(signal.side) > 0 else "sell",
@@ -833,7 +858,7 @@ class _Engine:
             original_qty=qty,
             entry_price=fill_price,
             entry_ref_price=ref,
-            entry_ts_ms=bar.ts_ms,
+            entry_ts_ms=funding_from if rt.use_mark_triggers else bar.ts_ms,
             entry_bar_index=i,
             funding_from_ms=funding_from,
             limit_fill=(entry_order == EntryOrder.LIMIT),
@@ -924,35 +949,87 @@ class _Engine:
         # move, so it takes precedence on the bar where the hold expires.
         if pos.max_hold_bars is not None and hold >= int(pos.max_hold_bars):
             price = self._market_exit_price(pos, bar.open, rt.stream.instrument)
-            self._close(rt, pos, price, REASON_MAX_HOLD, bar, i, FeeRole.TIMEOUT)
+            self._close(rt, pos, price, REASON_MAX_HOLD, bar, i, FeeRole.TIMEOUT,
+                        event_ts_ms=bar.ts_ms if rt.use_mark_triggers else None)
             return
 
         path_bar = self._post_entry_path(pos, bar, just_opened)
-        touch = self._touch_slice(rt, bar, since_ms=(pos.funding_from_ms if just_opened else bar.ts_ms))
+        since_ms = pos.funding_from_ms if just_opened else bar.ts_ms
+        touch = self._touch_slice(rt, bar, since_ms=since_ms)
+        mark_path = self._mark_path(rt, bar, touch, since_ms) if rt.use_mark_triggers else None
+        if mark_path is not None and not mark_path:
+            # A next-close entry cannot have used an earlier part of the Mark candle.
+            return
         if just_opened and touch and self.sim.fill_subbar_conservative and pos.limit_fill:
             touch = self._clip_fill_subbar(pos, touch)
+        if mark_path:
+            self._resolve_mark_position(rt, pos, bar, i, policy, path_bar, touch, mark_path, since_ms,
+                                        open_is_observed=not (just_opened and pos.limit_fill))
+            return
         resolution = resolve_bar(pos.levels, path_bar, policy=policy, touch_bars=touch)
-
         pos.ambiguous = pos.ambiguous or resolution.ambiguous
-        # Not sticky: the question this answers is "was the exit decided by data or by
-        # convention", so it describes the bar that closes the trade, not any earlier bar
-        # that happened to have complete coverage.
+        # Not sticky: this flag describes the decision bar that closes the trade.
         pos.resolved_by_touch = resolution.resolved_by_touch
-
         for event in resolution.events:
             if not event.terminal:
-                self._partial_exit(rt, pos, event, bar, i)
+                self._partial_exit(rt, pos, event, bar)
                 continue
             if event.reason in _ADVERSE_REASONS and not resolution.resolved_by_touch:
-                # A bar that both takes the stop and would have armed break-even or
-                # tightened the trailing stop is ambiguous in exactly the way section 10
-                # names. The adverse sequence is used and the trade is labelled, so the
-                # convention's cost is reportable instead of invisible.
+                # A stop and an update candidate in the same unresolved bar are ambiguous.
                 if self._levels_would_change(pos, bar, rt.stream.instrument):
                     pos.ambiguous = True
             role = _ROLE_FOR_REASON[event.reason]
             self._close(rt, pos, event.price, event.reason, bar, i, role, label=event.label)
             return
+
+    def _resolve_mark_position(
+        self, rt: _SymbolRuntime, pos: _Position, bar: Bar, i: int, policy: ExitPolicy,
+        path_bar: Bar, touch: list[Bar], mark_path: list[Bar], since_ms: int,
+        *, open_is_observed: bool,
+    ) -> None:
+        resolution = resolve_bar(pos.levels, path_bar, policy=policy, touch_bars=touch,
+                                 mark_touch_bars=mark_path if touch else None,
+                                 mark_bar=mark_path[0] if not touch else None,
+                                 first_open_is_observed=open_is_observed)
+        pos.ambiguous = pos.ambiguous or resolution.ambiguous
+        pos.resolved_by_touch = resolution.resolved_by_touch
+        funding_cursor = max(bar.ts_ms, since_ms)
+        event_interval = mark_path[0].timeframe_ms
+        for event in resolution.events:
+            # At an observed open, exit is certain before a settlement stamped at
+            # the same instant. For an interior event, only its sub-bar is known.
+            boundary = "bar_start" if event.gapped else self.sim.funding_exit_boundary
+            funding_end = holding_window_end(event.ts_ms, event_interval, boundary)
+            self._charge_funding(rt, pos, funding_cursor, funding_end)
+            funding_cursor = max(funding_cursor, funding_end)
+            if not event.terminal:
+                self._partial_exit(rt, pos, event, bar, event_ts_ms=event.ts_ms)
+                continue
+            if event.reason in _ADVERSE_REASONS and not resolution.resolved_by_touch and self._levels_would_change(
+                pos, bar, rt.stream.instrument,
+            ):
+                pos.ambiguous = True
+            role = _ROLE_FOR_REASON[event.reason]
+            self._close(rt, pos, event.price, event.reason, bar, i, role,
+                        label=event.label, event_ts_ms=event.ts_ms)
+            return
+        self._charge_funding(rt, pos, funding_cursor, bar.end_ts_ms)
+
+    def _mark_path(self, rt: _SymbolRuntime, bar: Bar, touch: list[Bar], since_ms: int) -> list[Bar]:
+        if since_ms >= bar.end_ts_ms:
+            return []
+        if rt.stream.touch_bars is not None and not touch:
+            raise DataValidationError(f"{rt.stream.symbol}: incomplete Last path at {bar.ts_ms}")
+        last_path = touch or [bar]
+        marks = rt.stream.mark_bars
+        idx = int(np.searchsorted(marks.ts_ms, last_path[0].ts_ms))
+        mark_path = []
+        for last in last_path:
+            if idx >= len(marks) or int(marks.ts_ms[idx]) != last.ts_ms:
+                raise DataValidationError(f"{rt.stream.symbol}: missing aligned Mark bar at {last.ts_ms}")
+            mark_path.append(marks.bar(idx))
+            idx += 1
+        return mark_path
 
     def _clip_fill_subbar(self, pos: _Position, touch: list[Bar]) -> list[Bar]:
         """EXEC-022: the sub-bar holding a resting-limit fill is only partly after the fill.
@@ -1072,7 +1149,7 @@ class _Engine:
     # -- exits -----------------------------------------------------------------------
 
     def _partial_exit(
-        self, rt: _SymbolRuntime, pos: _Position, event, bar: Bar, i: int
+        self, rt: _SymbolRuntime, pos: _Position, event, bar: Bar, *, event_ts_ms: int | None = None
     ) -> None:
         spec = rt.stream.instrument
         legs, problem = split_legs(
@@ -1100,10 +1177,11 @@ class _Engine:
         pos.qty -= leg_qty
         pos.legs_filled += 1
         pos.exit_notional += leg_qty * event.price
-        pos.legs.append((event.label, bar.ts_ms, leg_qty, event.price))
+        ts_ms = bar.ts_ms if event_ts_ms is None else event_ts_ms
+        pos.legs.append((event.label, ts_ms, leg_qty, event.price))
         self.fills.append(
             Fill(
-                ts_ms=bar.ts_ms,
+                ts_ms=ts_ms,
                 symbol=pos.symbol,
                 role=FeeRole.TAKE_PROFIT.value,
                 side="sell" if int(pos.side) > 0 else "buy",
@@ -1134,8 +1212,9 @@ class _Engine:
         role: FeeRole,
         *,
         label: str = "",
+        event_ts_ms: int | None = None,
     ) -> None:
-        if self.sim.funding_exit_boundary == "bar_start" and pos.funding_charged_this_bar:
+        if event_ts_ms is None and self.sim.funding_exit_boundary == "bar_start" and pos.funding_charged_this_bar:
             # Reverse this bar's settlements: the caller asked for the exact half-open
             # [entry, exit) window rather than the adverse bar-end reading.
             self.cash -= pos.funding_charged_this_bar
@@ -1159,10 +1238,11 @@ class _Engine:
 
         entry_bar_exit = i == pos.entry_bar_index
         full_reason = reason + ENTRY_BAR_SUFFIX if entry_bar_exit else reason
+        ts_ms = bar.ts_ms if event_ts_ms is None else event_ts_ms
 
         self.fills.append(
             Fill(
-                ts_ms=bar.ts_ms,
+                ts_ms=ts_ms,
                 symbol=pos.symbol,
                 role=role.value,
                 side="sell" if int(pos.side) > 0 else "buy",
@@ -1177,7 +1257,7 @@ class _Engine:
                 reason=full_reason,
             )
         )
-        pos.legs.append((label or reason, bar.ts_ms, qty, price))
+        pos.legs.append((label or reason, ts_ms, qty, price))
 
         realized = pos.gross_pnl - pos.fees + pos.funding
         if (
@@ -1207,7 +1287,7 @@ class _Engine:
                 liquidation_price=pos.liquidation_price,
                 leverage=pos.leverage,
                 initial_margin=pos.initial_margin,
-                exit_ts_ms=bar.ts_ms,
+                exit_ts_ms=ts_ms,
                 exit_price=round(weighted_exit, 12),
                 exit_reason=full_reason,
                 hold_bars=i - pos.entry_bar_index,
@@ -1232,7 +1312,7 @@ class _Engine:
 
         if self._equity() <= 0:
             self._ruined = True
-            self._ruined_at_ts_ms = int(bar.ts_ms)
+            self._ruined_at_ts_ms = int(ts_ms)
             self.warnings.append(
                 f"WALLET BLOWN at ts_ms={bar.ts_ms}: equity reached zero after "
                 f"trade {pos.trade_id}; trading stops unless a deposit policy is declared "
@@ -1248,24 +1328,18 @@ class _Engine:
             for pos in list(rt.positions):
                 price = self._market_exit_price(pos, bar.close, rt.stream.instrument)
                 pos.resolved_by_touch = False
-                self._close(
-                    rt, pos, price, REASON_END_OF_DATA, bar, i, FeeRole.END_OF_DATA
-                )
+                self._close(rt, pos, price, REASON_END_OF_DATA, bar, i, FeeRole.END_OF_DATA,
+                            event_ts_ms=bar.end_ts_ms if rt.use_mark_triggers else None)
 
     # -- funding ---------------------------------------------------------------------
 
     def _charge_funding(
-        self, rt: _SymbolRuntime, pos: _Position, start_ms: int, end_ms: int, i: int
+        self, rt: _SymbolRuntime, pos: _Position, start_ms: int, end_ms: int
     ) -> None:
         if rt.funding.empty:
             return
-        window_end = holding_window_end(
-            end_ms - rt.stream.bars.timeframe_ms,
-            rt.stream.bars.timeframe_ms,
-            "bar_end",
-        )
         stamps, rates = rt.funding.settlements_in(
-            max(int(start_ms), int(pos.funding_from_ms)), int(window_end)
+            max(int(start_ms), int(pos.funding_from_ms)), int(end_ms)
         )
         if len(stamps) == 0:
             return
